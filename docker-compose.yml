@@ -1,0 +1,28 @@
+services:
+  twitch-block-check:
+    build: .
+    image: twitch-block-check:latest
+    container_name: twitch-block-check
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - DB_PATH=/data/probe.sqlite3
+      - GEO_PROVIDER=${GEO_PROVIDER:-ip-api}
+      - IPINFO_TOKEN=${IPINFO_TOKEN:-}
+      - IP_HASH_SALT=${IP_HASH_SALT:-change-me-please}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - probe_data:/data
+      # Dev-friendly bind-mounts: changes to static assets or targets list
+      # are picked up on a simple page reload — no image rebuild required.
+      - ./app/static:/srv/app/static:ro
+    # When running behind a reverse proxy (Nginx/Caddy/Traefik) the proxy
+    # must forward the X-Forwarded-For header so /api/geo sees the real IP.
+
+volumes:
+  probe_data:
+    # Persistent SQLite storage. Use a named volume so the container can run
+    # as a non-root user regardless of host directory ownership. To back up
+    # from the host: `docker run --rm -v twitch-block-check_probe_data:/data
+    # -v "$PWD":/backup alpine tar czf /backup/probe-data.tgz -C /data .`

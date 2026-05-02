@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Twitch Block Check / Проверка блокировок Twitch</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0a;color:#e0e0e0;line-height:1.4}
+.container{max-width:960px;margin:0 auto;padding:12px}
+.header{display:flex;align-items:center;gap:8px;margin-bottom:2px}
+.flag{font-size:1.4em}
+h1{font-size:1.3em;color:#fff}
+.subtitle{color:#888;font-size:.82em;margin-bottom:12px}
+.top-bar{display:flex;justify-content:flex-end;gap:6px;margin-bottom:8px}
+.lang-toggle{background:#222;border:1px solid #444;color:#ccc;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:.8em}
+
+.alert{border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:.83em}
+.alert-warn{background:#1a1a00;border:1px solid #554400;color:#ffcc00}
+.alert-error{background:#1a0000;border:1px solid #550000;color:#ff4444}
+.alert-info{background:#001a1a;border:1px solid #005555;color:#44dddd}
+.alert b{color:inherit;filter:brightness(1.3)}
+
+#geo-box{margin-bottom:10px}
+.geo-card{background:#141414;border-radius:8px;padding:10px 14px;font-size:.82em;display:flex;align-items:center;gap:8px}
+.geo-card b{color:#fff}
+.geo-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.geo-dot.ru{background:#22c55e;box-shadow:0 0 6px #22c55e}
+.geo-dot.other{background:#ef4444;box-shadow:0 0 6px #ef4444}
+@keyframes geoprog{from{width:0}to{width:100%}}
+
+button{background:#9146ff;color:#fff;border:none;border-radius:6px;padding:10px 20px;font-size:.95em;cursor:pointer;width:100%;margin-bottom:8px;transition:background .2s}
+button:hover{background:#772ce8}
+button:disabled{background:#333;color:#666;cursor:not-allowed}
+.btn-green{background:#16a34a}.btn-green:hover{background:#15803d}
+.btn-yellow{background:#b45309}.btn-yellow:hover{background:#92400e}
+
+#status{font-size:.82em;color:#aaa;margin-bottom:6px;min-height:1.2em}
+.progress-bar{width:100%;height:4px;background:#222;border-radius:2px;margin-bottom:12px;overflow:hidden}
+.progress-fill{height:100%;background:#9146ff;width:0%;transition:width .15s}
+
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;margin-bottom:10px}
+.summary-card{background:#141414;border-radius:8px;padding:10px;text-align:center}
+.summary-card .num{font-size:1.6em;font-weight:700}
+.summary-card .label{font-size:.7em;color:#888;margin-top:2px}
+.c-green{color:#22c55e}.c-red{color:#ef4444}.c-yellow{color:#f59e0b}.c-gray{color:#9ca3af}.c-purple{color:#9146ff}
+
+.tabs{display:flex;gap:4px;margin-bottom:10px}
+.tab{flex:1;text-align:center;padding:8px;background:#1a1a1a;border-radius:6px 6px 0 0;cursor:pointer;font-size:.85em;color:#888;border:1px solid #222;border-bottom:none}
+.tab.active{background:#141414;color:#fff;border-color:#444}
+
+.cat-card{background:#141414;border-radius:8px;padding:10px;margin-bottom:10px;border:1px solid #222}
+.cat-title{font-size:.82em;font-weight:700;color:#fff;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.cat-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:4px}
+.cat-item{display:flex;align-items:center;gap:6px;padding:4px 8px;background:#0a0a0a;border-radius:4px;font-size:.78em;border-left:3px solid #333}
+.cat-item.ok{border-left-color:#22c55e}
+.cat-item.blocked{border-left-color:#ef4444}
+.cat-item.timeout{border-left-color:#f59e0b}
+.cat-item.client{border-left-color:#6b7280}
+.cat-item.pending{border-left-color:#333;opacity:.5}
+.cat-item .ci-flag{font-size:.9em;flex-shrink:0}
+.cat-item .ci-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.cat-item .ci-name{color:#fff;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
+.cat-item .ci-proto{font-size:.6em;padding:1px 4px;border-radius:2px;background:#222;color:#888;text-transform:uppercase;font-weight:700;flex-shrink:0}
+.cat-item .ci-proto.wss{background:#3a1a5e;color:#c792ff}
+.cat-item .ci-proto.https{background:#1a2e2a;color:#78cfb0}
+.cat-item .ci-status{font-size:.7em;font-weight:700;min-width:18px;text-align:center;flex-shrink:0}
+.ci-status.ok{color:#22c55e}.ci-status.blocked{color:#ef4444}.ci-status.timeout{color:#f59e0b}.ci-status.client{color:#9ca3af}.ci-status.pending{color:#555}
+.cat-summary{font-size:.72em;color:#888;margin-top:4px}
+.cat-summary b{color:#fff}
+
+.live-feed{max-height:320px;overflow-y:auto;margin-bottom:10px}
+.feed-row{display:grid;grid-template-columns:auto 1fr auto auto auto;gap:6px;align-items:center;padding:5px 10px;font-size:.78em;border-left:3px solid #333;background:#111;margin-bottom:2px;border-radius:3px}
+.feed-row.ok{border-left-color:#22c55e}
+.feed-row.blocked{border-left-color:#ef4444}
+.feed-row.timeout{border-left-color:#f59e0b}
+.feed-row.client{border-left-color:#6b7280}
+.feed-row .proto{font-size:.65em;padding:1px 4px;border-radius:2px;background:#222;color:#888;text-transform:uppercase;font-weight:700}
+.feed-row .proto.wss{background:#3a1a5e;color:#c792ff}
+.feed-row .proto.https{background:#1a2e2a;color:#78cfb0}
+.feed-row .domain{color:#fff;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.feed-row .ms{color:#888;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.tag{padding:1px 6px;border-radius:3px;font-size:.7em;font-weight:600;text-align:center;min-width:55px}
+.tag.ok{background:#052e16;color:#22c55e}.tag.blocked{background:#2a0a0a;color:#ef4444}.tag.timeout{background:#1a1400;color:#f59e0b}.tag.client{background:#111827;color:#9ca3af}
+
+.asn-table{width:100%;border-collapse:collapse;font-size:.78em;margin-bottom:10px}
+.asn-table th{text-align:left;padding:5px 8px;background:#1a1a1a;color:#888;font-weight:600;position:sticky;top:0;z-index:1}
+.asn-table td{padding:4px 8px;border-bottom:1px solid #1a1a1a}
+.asn-table tr:hover{background:#1a1a1a}
+.asn-wrap{max-height:350px;overflow-y:auto;margin-bottom:10px}
+.bar{display:inline-block;height:10px;border-radius:2px;vertical-align:middle}
+
+.filter-bar{display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap}
+.filter-btn{background:#222;border:1px solid #444;color:#aaa;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:.75em}
+.filter-btn.active{background:#9146ff;border-color:#9146ff;color:#fff}
+
+.results-grid{display:grid;gap:3px;max-height:400px;overflow-y:auto;margin-bottom:10px}
+
+#map-russia{height:450px;border-radius:8px;margin-bottom:10px;background:#111}
+#map-world{height:400px;border-radius:8px;margin-bottom:10px;background:#111}
+.map-legend{display:flex;gap:12px;justify-content:center;font-size:.75em;margin-bottom:10px;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:4px}
+.legend-swatch{width:14px;height:14px;border-radius:2px}
+.info-panel{padding:6px 10px;background:rgba(10,10,10,.92);border-radius:6px;color:#e0e0e0;font-size:.8em;border:1px solid #333}
+.info-panel b{color:#fff}
+
+#report-status{text-align:center;font-size:.83em;margin-top:6px;min-height:1.2em}
+.hidden{display:none!important}
+.section-label{font-size:.75em;color:#666;text-transform:uppercase;letter-spacing:.05em;padding:6px 0 4px;margin-top:4px}
+
+.stats-pct{display:flex;gap:12px;margin-bottom:10px}
+.stats-pct-card{flex:1;background:#141414;border-radius:8px;padding:10px;text-align:center}
+.stats-pct-card .pct{font-size:1.6em;font-weight:700}
+.stats-pct-card .pct-label{font-size:.7em;color:#888;margin-top:2px}
+.stat-row{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:.78em}
+.stat-cat{min-width:170px;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stat-bar-bg{flex:1;height:14px;background:#1a1a1a;border-radius:3px;overflow:hidden;display:flex}
+.stat-bar-ok{background:#22c55e;height:100%}
+.stat-bar-fail{background:#ef4444;height:100%}
+.stat-count{min-width:50px;text-align:right;color:#888;font-variant-numeric:tabular-nums}
+
+.clip-lookup{background:#141414;border:1px solid #222;border-radius:8px;padding:10px;margin-bottom:10px}
+.clip-lookup-row{display:flex;gap:6px;align-items:center}
+.lookup-type-label{font-size:.72em;color:#666;font-weight:700;text-transform:uppercase;flex-shrink:0;min-width:28px}
+.clip-lookup input{flex:1;background:#0a0a0a;border:1px solid #333;color:#e0e0e0;padding:6px 10px;border-radius:4px;font-size:.82em;outline:none}
+.clip-lookup input:focus{border-color:#9146ff}
+.clip-lookup .btn-find{width:auto;padding:6px 14px;margin:0;font-size:.82em;background:#222;color:#ccc;border:1px solid #444}
+.clip-lookup .btn-find:hover{background:#333;color:#fff}
+.clip-cdn-domain{display:flex;align-items:center;gap:6px;padding:3px 0;font-size:.78em}
+.clip-cdn-domain .cdn-host{font-family:ui-monospace,monospace;color:#fff}
+.btn-add-cdn{padding:1px 8px!important;font-size:.68em!important;width:auto!important;margin:0!important;background:#1a0a2e!important;color:#a78bfa!important;border:1px solid #3a1a5e!important}
+.btn-add-cdn:hover{background:#2a1a4e!important}
+.tag-badge{display:inline-flex;align-items:center;background:#1a0a2e;color:#a78bfa;padding:1px 5px;border-radius:3px;font-size:.58em;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+.ci-tags{display:flex;flex-wrap:wrap;gap:2px}
+.feed-tags{display:flex;flex-wrap:wrap;gap:2px;align-items:center}
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="top-bar">
+  <button class="lang-toggle" onclick="toggleLang()" id="lang-btn">EN</button>
+</div>
+
+<div class="header">
+  <span class="flag">🟣</span>
+  <h1 id="title"></h1>
+</div>
+<p class="subtitle" id="subtitle"></p>
+
+<div id="geo-box"></div>
+<div id="geo-alert"></div>
+<div id="asset-loading" style="font-size:.8em;color:#888;margin:8px 0">
+  <div id="asset-status" data-en="Loading data…" data-ru="Загрузка данных…">Загрузка данных…</div>
+  <div class="progress-bar"><div class="progress-fill" id="asset-progress" style="width:0%;background:#9146ff"></div></div>
+  <div id="asset-detail" style="font-size:.85em;margin-top:3px"></div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="showTab('test')" id="tab-test"></div>
+  <div class="tab" onclick="showTab('map')" id="tab-map"></div>
+  <div class="tab" onclick="showTab('stats')" id="tab-stats"></div>
+</div>
+
+<div id="panel-test">
+  <div id="vpn-warn"></div>
+  <div id="report-section-top"></div>
+  <div class="clip-lookup">
+    <div class="section-label" data-en="CDN lookup (auto on test start)" data-ru="CDN lookup (авто при запуске теста)" style="margin-bottom:6px"></div>
+    <div class="clip-lookup-row">
+      <span class="lookup-type-label">Clip</span>
+      <input id="clip-url-input" type="text"
+             value="https://www.twitch.tv/goodoq/clip/LitigiousUnsightlyPieMrDestructoid-oE46KInPq3dAKT0i"
+             onkeydown="if(event.key==='Enter')lookupClipCDN()">
+      <button class="btn-find" onclick="lookupClipCDN()" data-en="Find" data-ru="Найти"></button>
+    </div>
+    <div id="clip-cdn-result" style="margin-top:4px;margin-bottom:6px"></div>
+    <div class="clip-lookup-row">
+      <span class="lookup-type-label">VOD</span>
+      <input id="vod-url-input" type="text"
+             value="https://www.twitch.tv/videos/2611144263"
+             onkeydown="if(event.key==='Enter')lookupVodCDN()">
+      <button class="btn-find" onclick="lookupVodCDN()" data-en="Find" data-ru="Найти"></button>
+    </div>
+    <div id="vod-cdn-result" style="margin-top:4px;margin-bottom:6px"></div>
+    <div class="clip-lookup-row">
+      <span class="lookup-type-label">Live</span>
+      <input id="live-url-input" type="text"
+             value="https://www.twitch.tv/lofigirl"
+             onkeydown="if(event.key==='Enter')lookupLiveCDN()">
+      <button class="btn-find" onclick="lookupLiveCDN()" data-en="Find" data-ru="Найти"></button>
+    </div>
+    <div id="live-cdn-result" style="margin-top:4px"></div>
+  </div>
+  <button id="run-btn" onclick="runTest()" disabled></button>
+  <div id="status"></div>
+  <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
+  <div id="summary-container"></div>
+  <div id="stats-section" class="hidden"></div>
+
+  <div id="priority-section" class="hidden"></div>
+
+  <div id="live-section" class="hidden">
+    <div class="section-label" id="live-label"></div>
+    <div class="live-feed" id="live-feed"></div>
+  </div>
+
+  <div id="world-section" class="hidden">
+    <div class="section-label" id="world-label"></div>
+    <div id="map-world"></div>
+  </div>
+
+  <div id="filter-container"></div>
+  <div id="results" class="results-grid"></div>
+  <div id="vpn-warn-bottom"></div>
+  <div id="report-section-bottom"></div>
+  <div id="report-status"></div>
+</div>
+
+<div id="panel-map" class="hidden">
+  <div class="filter-bar" style="margin-bottom:8px;align-items:center">
+    <span class="filter-btn active" id="map-mode-oblast" onclick="setMapMode('oblast')" data-en="Oblasts" data-ru="Области">Области</span>
+    <span class="filter-btn" id="map-mode-city" onclick="setMapMode('city')" data-en="Cities" data-ru="Города">Города</span>
+    <select id="map-period" onchange="refreshMapData()" style="margin-left:auto;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:4px 8px;font-size:.82em"></select>
+  </div>
+  <div id="map-russia"></div>
+  <div class="map-legend">
+    <div class="legend-item"><div class="legend-swatch" style="background:#22c55e"></div><span data-en="<5% blocked" data-ru="<5% заблокировано"></span></div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#84cc16"></div><span data-en="5-15%" data-ru="5-15%"></span></div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#eab308"></div><span data-en="15-30%" data-ru="15-30%"></span></div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#f59e0b"></div><span data-en="30-50%" data-ru="30-50%"></span></div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#f97316"></div><span data-en="50-70%" data-ru="50-70%"></span></div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#ef4444"></div><span data-en=">70%" data-ru=">70%"></span></div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#333"></div><span data-en="No data" data-ru="Нет данных"></span></div>
+  </div>
+  <div id="region-detail" style="margin-bottom:10px"></div>
+</div>
+
+<div id="panel-stats" class="hidden">
+  <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
+    <select id="stats-city" onchange="updateOrgFilter();loadStats()" style="flex:1;min-width:140px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:6px 8px;font-size:.82em"></select>
+    <select id="stats-org" onchange="loadStats()" style="flex:1;min-width:140px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:6px 8px;font-size:.82em"></select>
+    <select id="stats-period" onchange="loadStats()" style="min-width:120px;background:#1a1a1a;color:#e0e0e0;border:1px solid #444;border-radius:4px;padding:6px 8px;font-size:.82em"></select>
+  </div>
+  <div id="stats-report-count" style="font-size:.78em;color:#888;margin-bottom:8px"></div>
+  <div id="stats-cards"></div>
+</div>
+
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

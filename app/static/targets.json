@@ -1,0 +1,51 @@
+{
+  "ru": [],
+  "intl": [
+    {"d": "twitch.tv",                                        "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "main",      "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+    {"d": "www.twitch.tv",                                    "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "main",      "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+    {"d": "m.twitch.tv",                                      "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "main",      "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+    {"d": "clips.twitch.tv",                                  "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "main",      "proto": "https", "tags": ["clips"]},
+    {"d": "player.twitch.tv",                                 "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "main",      "proto": "https", "tags": ["clips", "vods"]},
+
+    {"d": "gql.twitch.tv",                                    "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "api",       "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+    {"d": "api.twitch.tv",                                    "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "api",       "proto": "https", "tags": ["clips", "vods"]},
+    {"d": "hermes.twitch.tv",                                 "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "api",       "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+    {"d": "spade.twitch.tv",                                  "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "api",       "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+
+    {"d": "passport.twitch.tv",                               "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "auth",      "proto": "https", "tags": ["clips", "vods"]},
+    {"d": "id.twitch.tv",                                     "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "auth",      "proto": "https", "tags": ["clips", "vods"]},
+
+    {"d": "irc-ws.chat.twitch.tv",                            "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "chat_ws",   "proto": "wss",   "path": "/", "tags": ["live-streams", "vods"]},
+
+    {"d": "assets.twitch.tv",                                 "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "cdn",       "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+    {"d": "panels.twitch.tv",                                 "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "cdn",       "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+    {"d": "vod-secure.twitch.tv",                             "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "cdn",       "proto": "https", "tags": ["live-streams", "vods"]},
+    {"d": "k.twitchcdn.net",                                  "asn": "AS16509", "country": "US", "city": "Seattle",       "lat": 47.6062, "lon": -122.3321, "cat": "cdn",       "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+    {"d": "static-cdn.jtvnw.net",                             "asn": "AS16509", "country": "US", "city": "Seattle",       "lat": 47.6062, "lon": -122.3321, "cat": "cdn",       "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+    {"d": "extension-files.twitch.tv",                        "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "cdn",       "proto": "https", "tags": ["vods"]},
+
+    {"d": "usher.ttvnw.net",                                  "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "streaming", "proto": "https", "tags": ["live-streams", "vods"]},
+    {"d": "euw13.playlist.ttvnw.net",                         "asn": "AS16509", "country": "IE", "city": "Dublin",        "lat": 53.3498, "lon": -6.2603,   "cat": "streaming", "proto": "https", "tags": ["live-streams"]},
+    {"d": "4130853292bb.j.cloudfront.hls.ttvnw.net",          "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "streaming", "proto": "https", "tags": ["live-streams"]},
+    {"d": "player.stats.live-video.net",                      "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "streaming", "proto": "https", "tags": ["live-streams", "vods"]},
+    {"d": "global.poe.live-video.net",                        "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "streaming", "proto": "https", "tags": ["live-streams", "vods"]},
+    {"d": "video-edge-47127a.sjc05.hls.live-video.net",       "asn": "AS16509", "country": "US", "city": "San Jose",      "lat": 37.3382, "lon": -121.8863, "cat": "streaming", "proto": "https", "tags": ["live-streams"]},
+    {"d": "fairplay.twitch.keyos.com",                       "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "streaming", "proto": "https", "tags": ["vods"], "note": "DRM — FairPlay (iOS/Safari)"},
+    {"d": "playready.twitch.keyos.com",                      "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "streaming", "proto": "https", "tags": ["vods"], "note": "DRM — PlayReady (Edge)"},
+    {"d": "widevine.twitch.keyos.com",                       "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "streaming", "proto": "https", "tags": ["vods"], "note": "DRM — Widevine (Chrome/Firefox)"},
+
+    {"d": "edge.ads.twitch.tv",                               "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "ads",       "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+    {"d": "s.amazon-adsystem.com",                            "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "ads",       "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+    {"d": "aax-eu.amazon-adsystem.com",                       "asn": "AS16509", "country": "IE", "city": "Dublin",        "lat": 53.3498, "lon": -6.2603,   "cat": "ads",       "proto": "https", "tags": ["clips", "vods"]},
+
+    {"d": "cloudflare-dns.com",                               "asn": "AS13335", "country": "US", "city": "San Francisco", "lat": 37.7749, "lon": -122.4194, "cat": "dns",       "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+
+    {"d": "sb.scorecardresearch.com",                         "asn": "AS26101", "country": "US", "city": "Reston",        "lat": 38.9586, "lon": -77.3570,  "cat": "analytics", "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+
+    {"d": "supervisor.ext-twitch.tv",                         "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "ext",       "proto": "https", "tags": ["vods"]},
+    {"d": "www.gstatic.com",                                  "asn": "AS15169", "country": "US", "city": "Mountain View", "lat": 37.4225, "lon": -122.085,  "cat": "ext",       "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+
+    {"d": "ext.rte.net.ru",                                   "asn": "AS12389", "country": "RU", "city": "Moscow",        "lat": 55.7558, "lon": 37.6173,   "cat": "proxy",     "proto": "https", "note": "TSPU/RKN transparent proxy (port 8443)", "tags": ["live-streams", "vods"]},
+    {"d": "proxy4.rte.net.ru",                                "asn": "AS12389", "country": "RU", "city": "Moscow",        "lat": 55.7558, "lon": 37.6173,   "cat": "proxy",     "proto": "https", "note": "TSPU/RKN transparent proxy", "tags": ["live-streams", "vods"]}
+  ]
+}
