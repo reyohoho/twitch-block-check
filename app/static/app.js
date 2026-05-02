@@ -1384,6 +1384,11 @@ async function loadSharedReport(id){
     priorityResults = {};
     allResults.forEach(r => { priorityResults[r.domain] = {status:r.status, ms:r.ms, proto:r.proto}; });
 
+    // Restore dynamic CDN domains into targets so they appear in priority cards
+    for(const r of allResults){
+      if(r.dynamic) _addDomainToTargets(r.domain, r.tags);
+    }
+
     reportId = id; reportStatus = "ok"; testDone = true; hasRunOnce = true; reportSubmitting = false;
 
     showTab("test");
