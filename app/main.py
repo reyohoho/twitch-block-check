@@ -117,9 +117,12 @@ async def api_geo(
     x_forwarded_for: Optional[str] = Header(None, alias="X-Forwarded-For"),
 ) -> JSONResponse:
     ip = _client_ip(request, x_forwarded_for)
+    log.info("geo request ip=%s x_forwarded_for=%s", ip, x_forwarded_for)
     data = await geo.lookup(ip, force=bool(force))
     if not data:
+        log.warning("geo lookup failed ip=%s", ip)
         return JSONResponse({"error": "geo_lookup_failed"}, status_code=200)
+    log.info("geo result ip=%s city=%s region=%s country=%s org=%s", ip, data.get("city"), data.get("region"), data.get("country"), data.get("org"))
     return JSONResponse(data)
 
 
