@@ -43,6 +43,7 @@ const T = {
   geo_net:       {en:"Your network",                        ru:"Ваша сеть"},
   show_all:      {en:"All",                                 ru:"Все"},
   show_blocked:  {en:"Blocked only",                        ru:"Только заблокированные"},
+  no_failures:   {en:"No failures — all reachable",         ru:"Сбоев нет — всё доступно"},
   show_local:    {en:"Local only",                          ru:"Только локальные"},
   show_https:    {en:"HTTPS",                               ru:"HTTPS"},
   show_wss:      {en:"WebSocket",                           ru:"WebSocket"},
@@ -92,6 +93,7 @@ let cityMarkers = [], russiaInfoCtrl = null;
 let reportStatus = null;
 let reportSubmitting = false;
 let priorityFilter = "all"; // "all" | "failed"
+let statsFilter    = "all"; // "all" | "failed"
 let testRunning = false;
 let apiReachable = false, pingInterval = null;
 let geoInterval = null;
@@ -411,6 +413,7 @@ function catTitle(catId){
 }
 
 function setPriorityFilter(f){ priorityFilter = f; renderPriorityCards(); }
+function setStatsFilter(f){ statsFilter = f; if(_lastStatsData) renderStatsCards(_lastStatsData); }
 
 // ===== Priority cards =====
 function renderPriorityCards(){
@@ -1064,13 +1067,41 @@ async function loadStats(){
     document.getElementById("stats-cards").innerHTML = `<div style="color:#f44;font-size:.82em">Error loading stats</div>`;
   }
 }
+let _lastStatsData = null;
+
+function _isFailed(okPct){ return okPct < 90; }
+
 function renderStatsCards(data){
+  _lastStatsData = data;
   document.getElementById("stats-report-count").textContent = `${t("reports")}: ${data.report_count}`;
   if(!data.report_count){
     document.getElementById("stats-cards").innerHTML = `<div style="color:#888;font-size:.82em;text-align:center;padding:20px">${t("no_data")}</div>`;
     return;
   }
+
   const structure = buildPriorityStructure();
+  const isFailed = statsFilter === "failed";
+
+  // Count total failed across all categories (for filter button label)
+  let totalFailed = 0;
+  for(const cat of structure){
+    for(const site of cat.sites){
+      const s = data.domains[site.d];
+      if(s && s.total && _isFailed(s.ok/s.total*100)) totalFailed++;
+    }
+  }
+  // Also count dynamic failed
+  const staticDomains = new Set(structure.flatMap(cat => cat.sites.map(s => s.d)));
+  const dynamicEntries = Object.entries(data.domains).filter(([d]) => !staticDomains.has(d));
+  for(const [, s] of dynamicEntries){
+    if(s.total && _isFailed(s.ok/s.total*100)) totalFailed++;
+  }
+
+  const filterBar = `<div class="filter-bar" style="margin-bottom:8px">
+    <span class="filter-btn ${statsFilter==="all"?"active":""}" onclick="setStatsFilter('all')">${t("show_all")}</span>
+    <span class="filter-btn ${statsFilter==="failed"?"active":""}" onclick="setStatsFilter('failed')">${t("show_blocked")}${totalFailed>0?" ("+totalFailed+")":""}</span>
+  </div>`;
+
   let html = "";
   for(const cat of structure){
     const title = catTitle(cat.id);
@@ -1081,38 +1112,45 @@ function renderStatsCards(data){
       const tagsHtml = (site.tags||[]).length
         ? `<div class="ci-tags">${site.tags.map(tag=>`<span class="tag-badge">${tag}</span>`).join("")}</div>` : "";
       if(!s || !s.total){
+        if(isFailed) continue;
         items += `<div class="cat-item pending"><span class="ci-flag">${site.flag}</span><div class="ci-main"><span class="ci-name">${site.name}</span>${tagsHtml}</div><span class="ci-proto ${protoCls}">${site.proto}</span><span class="ci-status" style="color:#555">—</span></div>`;
         continue;
       }
       const okPct = s.ok/s.total*100;
       const cls = okPct<50?"blocked":okPct<90?"timeout":"ok";
+      if(isFailed && !_isFailed(okPct)) continue;
       catOk += s.ok; catTotal += s.total;
-      items += `<div class="cat-item ${cls}"><span class="ci-flag">${site.flag}</span><div class="ci-main"><span class="ci-name">${site.name}</span>${tagsHtml}</div><span class="ci-proto ${protoCls}">${site.proto}</span><span class="ci-status ${cls}">${okPct.toFixed(0)}%</span></div>`;
+      items += `<div class="cat-item ${cls}"><span class="ci-flag">${site.flag}</span><div class="ci-main"><span class="ci-name">${site.name}</span>${tagsHtml}</div><span class="ci-proto ${protoCls}">${site.proto}</span><span class="ci-status ${cls}" title="${s.ok}/${s.total}">${okPct.toFixed(0)}%</span></div>`;
     }
+    if(!items) continue;
     const catPct = catTotal?`<b>${(catOk/catTotal*100).toFixed(0)}%</b> ${t("available")}`:"";
     html += `<div class="cat-card"><div class="cat-title">${title}</div><div class="cat-grid">${items}</div>${catPct?`<div class="cat-summary">${catPct}</div>`:""}</div>`;
   }
-  // Dynamic CDN domains — appear in reports but not in the static targets list
-  const staticDomains = new Set(structure.flatMap(cat => cat.sites.map(s => s.d)));
-  const dynamicEntries = Object.entries(data.domains).filter(([d]) => !staticDomains.has(d));
+
+  // Dynamic CDN
   if(dynamicEntries.length){
-    let dynItems = "";
-    let dynOk = 0, dynTotal = 0;
+    let dynItems = "", dynOk = 0, dynTotal = 0;
     for(const [domain, s] of dynamicEntries.sort((a,b)=>a[0].localeCompare(b[0]))){
       if(!s.total) continue;
       const okPct = s.ok/s.total*100;
       const cls = okPct<50?"blocked":okPct<90?"timeout":"ok";
+      if(isFailed && !_isFailed(okPct)) continue;
       dynOk += s.ok; dynTotal += s.total;
       const tagsHtml = (s.tags||[]).length
         ? `<div class="ci-tags">${s.tags.map(tag=>`<span class="tag-badge">${tag}</span>`).join("")}</div>` : "";
-      dynItems += `<div class="cat-item ${cls}"><span class="ci-flag">🌐</span><div class="ci-main"><span class="ci-name">${domain}</span>${tagsHtml}</div><span class="ci-proto https">https</span><span class="ci-status ${cls}">${okPct.toFixed(0)}%</span></div>`;
+      dynItems += `<div class="cat-item ${cls}"><span class="ci-flag">🌐</span><div class="ci-main"><span class="ci-name">${domain}</span>${tagsHtml}</div><span class="ci-proto https">https</span><span class="ci-status ${cls}" title="${s.ok}/${s.total}">${okPct.toFixed(0)}%</span></div>`;
     }
     if(dynItems){
       const dynPct = dynTotal ? `<b>${(dynOk/dynTotal*100).toFixed(0)}%</b> ${t("available")}` : "";
       html += `<div class="cat-card"><div class="cat-title">Dynamic CDN</div><div class="cat-grid">${dynItems}</div>${dynPct?`<div class="cat-summary">${dynPct}</div>`:""}</div>`;
     }
   }
-  document.getElementById("stats-cards").innerHTML = html;
+
+  if(isFailed && !html){
+    html = `<div style="color:#4caf50;font-size:.85em;text-align:center;padding:20px">✓ ${t("no_failures")}</div>`;
+  }
+
+  document.getElementById("stats-cards").innerHTML = filterBar + html;
 }
 
 // ===== Russia map =====
