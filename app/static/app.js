@@ -821,11 +821,6 @@ function _addDomainToTargets(domain, tags) {
     tags, _dynamic: true,
   });
   domainGeo[domain] = { lat: 39.0438, lon: -77.4874, country: "US", city: "Ashburn" };
-  // Persist to targets.json so the domain survives page reloads and appears in stats for all users
-  fetch("/api/add-target", {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({domain, tags}),
-  }).catch(() => {});
   return true;
 }
 
@@ -1094,6 +1089,24 @@ function renderStatsCards(data){
     }
     const catPct = catTotal?`<b>${(catOk/catTotal*100).toFixed(0)}%</b> ${t("available")}`:"";
     html += `<div class="cat-card"><div class="cat-title">${title}</div><div class="cat-grid">${items}</div>${catPct?`<div class="cat-summary">${catPct}</div>`:""}</div>`;
+  }
+  // Dynamic CDN domains — appear in reports but not in the static targets list
+  const staticDomains = new Set(structure.flatMap(cat => cat.sites.map(s => s.d)));
+  const dynamicEntries = Object.entries(data.domains).filter(([d]) => !staticDomains.has(d));
+  if(dynamicEntries.length){
+    let dynItems = "";
+    let dynOk = 0, dynTotal = 0;
+    for(const [domain, s] of dynamicEntries.sort((a,b)=>a[0].localeCompare(b[0]))){
+      if(!s.total) continue;
+      const okPct = s.ok/s.total*100;
+      const cls = okPct<50?"blocked":okPct<90?"timeout":"ok";
+      dynOk += s.ok; dynTotal += s.total;
+      dynItems += `<div class="cat-item ${cls}"><span class="ci-flag">🌐</span><div class="ci-main"><span class="ci-name">${domain}</span></div><span class="ci-proto https">https</span><span class="ci-status ${cls}">${okPct.toFixed(0)}%</span></div>`;
+    }
+    if(dynItems){
+      const dynPct = dynTotal ? `<b>${(dynOk/dynTotal*100).toFixed(0)}%</b> ${t("available")}` : "";
+      html += `<div class="cat-card"><div class="cat-title">Dynamic CDN</div><div class="cat-grid">${dynItems}</div>${dynPct?`<div class="cat-summary">${dynPct}</div>`:""}</div>`;
+    }
   }
   document.getElementById("stats-cards").innerHTML = html;
 }

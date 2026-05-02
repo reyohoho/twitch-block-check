@@ -191,34 +191,6 @@ async def api_report(
     return {"ok": True, "report_id": report_id}
 
 
-@app.post("/api/add-target")
-async def add_target(request: Request) -> JSONResponse:
-    """Persist a dynamically discovered CDN domain into targets.json (intl list)."""
-    import json as _json2, pathlib
-    body = await request.json()
-    domain = str(body.get("domain", "")).strip().lower()
-    tags   = body.get("tags", [])
-    if not domain:
-        return JSONResponse({"error": "domain required"}, status_code=400)
-
-    targets_path = pathlib.Path(__file__).parent / "static" / "targets.json"
-    try:
-        data = _json2.loads(targets_path.read_text())
-    except Exception as exc:
-        return JSONResponse({"error": str(exc)}, status_code=500)
-
-    if any(e.get("d") == domain for e in data.get("intl", [])):
-        return JSONResponse({"ok": True, "added": False, "reason": "already exists"})
-
-    data.setdefault("intl", []).append({
-        "d": domain, "asn": "AS16509", "country": "US", "city": "Ashburn",
-        "lat": 39.0438, "lon": -77.4874, "cat": "streaming", "proto": "https",
-        "tags": tags,
-    })
-    targets_path.write_text(_json2.dumps(data, ensure_ascii=False, indent=2))
-    log.info("target added domain=%s tags=%s", domain, tags)
-    return JSONResponse({"ok": True, "added": True})
-
 
 @app.get("/api/stats-filters")
 async def api_stats_filters() -> dict:
