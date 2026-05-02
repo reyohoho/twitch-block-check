@@ -112,15 +112,31 @@ const RU_ISPS = [
 ];
 
 // ===== Geo =====
-async function getGeo(force){
+async function getGeo(){
   try{
     const ctrl = new AbortController();
-    setTimeout(()=>ctrl.abort(), 4000);
-    const r = await fetch(`/api/geo${force?"?force=1":""}`,{cache:"no-store",signal:ctrl.signal});
-    const data = await r.json();
-    if(data.error || !data.ip){ _geoFails++; return null; }
+    setTimeout(()=>ctrl.abort(), 5000);
+    const r = await fetch(
+      "https://ip-api.com/json/?fields=status,country,countryCode,regionName,city,lat,lon,timezone,isp,org,as,query",
+      {cache:"no-store", signal:ctrl.signal}
+    );
+    const d = await r.json();
+    if(d.status !== "success"){ _geoFails++; return null; }
+    const asFull = d.as || "";
+    const asParts = asFull.split(" ", 2);
+    const asNum = asParts[0]?.startsWith("AS") ? asParts[0] : "";
+    const isp = d.isp || d.org || "";
+    const org = asNum ? `${asNum} ${isp}`.trim() : isp;
     _geoFails = 0;
-    return data;
+    return {
+      ip: d.query || "",
+      city: d.city || "",
+      region: d.regionName || "",
+      country: d.countryCode || "",
+      loc: `${d.lat},${d.lon}`,
+      org,
+      timezone: d.timezone || "",
+    };
   }catch{ _geoFails++; return null; }
 }
 function geoProgressHTML(label){
@@ -132,7 +148,7 @@ async function forceRefreshGeo(){
   _geoRefreshing = true;
   const gen = ++_geoGen;
   document.getElementById("geo-box").innerHTML = geoProgressHTML(t("rechecking"));
-  const data = await getGeo(true);
+  const data = await getGeo();
   _geoRefreshing = false;
   if(gen !== _geoGen) return;
   geoData = data;
