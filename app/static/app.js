@@ -137,6 +137,7 @@ function geoProgressHTML(label){
 }
 async function forceRefreshGeo(){
   if(_geoRefreshing) return;
+  if(reportId && testDone && !testRunning) return; // don't overwrite shared report geo
   _geoRefreshing = true;
   const gen = ++_geoGen;
   document.getElementById("geo-box").innerHTML = geoProgressHTML(t("rechecking"));
@@ -1391,8 +1392,11 @@ async function loadSharedReport(id){
 
     reportId = id; reportStatus = "ok"; testDone = true; hasRunOnce = true; reportSubmitting = false;
 
+    // Stop geo auto-refresh so the viewer's IP doesn't overwrite the report's saved geo
+    stopGeoRefresh();
+
     showTab("test");
-    const geo = {city: data.city, region: data.region, country: data.country, org: data.org};
+    const geo = {city: data.city, region: data.region, country: data.country, org: data.org, ip: data.ip};
     geoData = geo; renderGeo(geo);
 
     document.getElementById("priority-section").classList.remove("hidden");
