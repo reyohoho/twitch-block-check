@@ -287,7 +287,7 @@ async function probeHttps(url, timeoutMs = TIMEOUT_MS){
 
 // Reliability probe: hit the CDN domain N times with delayMs between requests.
 // ok = all N succeeded; stores successCount/totalCount for display.
-const RELIABILITY_TIMES   = 20;
+const RELIABILITY_TIMES   = 13;
 const RELIABILITY_DELAY   = 50;   // ms between requests
 const RELIABILITY_TIMEOUT = 3000; // per-request timeout
 
@@ -560,6 +560,7 @@ async function runTest(){
   testDone = false; testRunning = true; allResults = []; priorityResults = {}; reportStatus = null; reportSubmitting = false; priorityFilter = "all";
   apiReachable = false; stopPingPoll();
   progress.style.width = "0%"; status.textContent = "";
+  status.classList.add("running"); progress.classList.add("running");
   worldMarkers.forEach(m=>m.remove()); worldMarkers = [];
   document.getElementById("live-feed").innerHTML = "";
   document.getElementById("report-section-top").innerHTML = "";
@@ -580,7 +581,7 @@ async function runTest(){
   renderPriorityCards();
   document.getElementById("summary-container").innerHTML = `<div class="alert alert-warn" style="font-size:.75em">${t("dns_warn")}</div>`;
 
-  status.textContent = t("rechecking");
+  status.innerHTML = `<span class="status-dot"></span>${t("rechecking")}`;
   geoData = await getGeo();
   renderGeo(geoData);
   // Geo lookup is best-effort only — tests run regardless of country / VPN status.
@@ -589,7 +590,7 @@ async function runTest(){
   // Resolve clip/VOD CDN domains before building the probe list
   await resolveDynamicCDN(status);
 
-  status.textContent = t("priority_phase");
+  status.innerHTML = `<span class="status-dot"></span>${t("priority_phase")}`;
   const allEntries = [
     ...(targets.intl||[]).map(e => ({...e, category:"intl"})),
     ...(targets.ru||[]).map(e => ({...e, category:"ru"})),
@@ -620,7 +621,7 @@ async function runTest(){
       allResults.push(result);
       doneCount++;
       progress.style.width = `${(doneCount/totalSites*100).toFixed(0)}%`;
-      status.textContent = `${t("priority_phase")}… ${doneCount}/${totalSites}`;
+      status.innerHTML = `<span class="status-dot"></span>${t("priority_phase")}… ${doneCount}/${totalSites}`;
       addToLiveFeed(result); addWorldMarker(result);
       if(doneCount % 3 === 0 || doneCount === totalSites){ renderPriorityCards(); renderStats(); }
     }
@@ -630,7 +631,7 @@ async function runTest(){
   // Retry timeouts once with lower concurrency
   const timedOut = allResults.filter(r=>r.status==="timeout");
   if(timedOut.length > 0){
-    status.textContent = `${t("retry_phase")}… 0/${timedOut.length}`;
+    status.innerHTML = `<span class="status-dot"></span>${t("retry_phase")}… 0/${timedOut.length}`;
     let retryDone = 0, retryIdx = 0;
     async function retryWorker(){
       while(retryIdx < timedOut.length){
@@ -645,7 +646,7 @@ async function runTest(){
         }
         retryDone++;
         if(retryDone % 3 === 0 || retryDone === timedOut.length){
-          status.textContent = `${t("retry_phase")}… ${retryDone}/${timedOut.length}`;
+          status.innerHTML = `<span class="status-dot"></span>${t("retry_phase")}… ${retryDone}/${timedOut.length}`;
           renderPriorityCards(); renderStats();
         }
       }
@@ -661,6 +662,7 @@ async function runTest(){
   renderFilters();
   renderResults("all");
   progress.style.width = "100%";
+  status.classList.remove("running"); progress.classList.remove("running");
   status.textContent = t("done");
   updateRunBtn();
   updateVpnWarn();
