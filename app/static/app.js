@@ -1101,7 +1101,9 @@ function renderStatsCards(data){
       const okPct = s.ok/s.total*100;
       const cls = okPct<50?"blocked":okPct<90?"timeout":"ok";
       dynOk += s.ok; dynTotal += s.total;
-      dynItems += `<div class="cat-item ${cls}"><span class="ci-flag">🌐</span><div class="ci-main"><span class="ci-name">${domain}</span></div><span class="ci-proto https">https</span><span class="ci-status ${cls}">${okPct.toFixed(0)}%</span></div>`;
+      const tagsHtml = (s.tags||[]).length
+        ? `<div class="ci-tags">${s.tags.map(tag=>`<span class="tag-badge">${tag}</span>`).join("")}</div>` : "";
+      dynItems += `<div class="cat-item ${cls}"><span class="ci-flag">🌐</span><div class="ci-main"><span class="ci-name">${domain}</span>${tagsHtml}</div><span class="ci-proto https">https</span><span class="ci-status ${cls}">${okPct.toFixed(0)}%</span></div>`;
     }
     if(dynItems){
       const dynPct = dynTotal ? `<b>${(dynOk/dynTotal*100).toFixed(0)}%</b> ${t("available")}` : "";

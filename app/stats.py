@@ -166,7 +166,8 @@ def stats_priority(
            COUNT(*)          AS total,
            SUM(CASE WHEN res.status='ok'      THEN 1 ELSE 0 END) AS ok,
            SUM(CASE WHEN res.status='blocked' THEN 1 ELSE 0 END) AS blocked,
-           SUM(CASE WHEN res.status='timeout' THEN 1 ELSE 0 END) AS timeout
+           SUM(CASE WHEN res.status='timeout' THEN 1 ELSE 0 END) AS timeout,
+           MAX(CASE WHEN res.tags IS NOT NULL AND res.tags != 'null' THEN res.tags END) AS tags
     FROM reports r
     JOIN results res ON res.report_id = r.id
     WHERE res.status IN ('ok','blocked','timeout')
@@ -180,11 +181,18 @@ def stats_priority(
     domains: dict = {}
     with db.get_conn() as conn:
         for row in conn.execute(sql, (*pa, *args)):
+            import json as _j
+            raw_tags = row["tags"]
+            try:
+                tags = _j.loads(raw_tags) if raw_tags else []
+            except Exception:
+                tags = []
             domains[row["domain"]] = {
                 "total":   row["total"]   or 0,
                 "ok":      row["ok"]      or 0,
                 "blocked": row["blocked"] or 0,
                 "timeout": row["timeout"] or 0,
+                "tags":    tags,
             }
         rc = conn.execute(report_count_sql, (*pa, *args)).fetchone()
     return {"report_count": rc[0] if rc else 0, "domains": domains}
