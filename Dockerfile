@@ -12,10 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-RUN mkdir -p /data && \
-    addgroup --system app && adduser --system --ingroup app app && \
-    chown -R app:app /srv /data
-USER app
+RUN mkdir -p /data
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
