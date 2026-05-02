@@ -1,14 +1,13 @@
-"""IP-to-geo lookup via ip-api.com with in-memory TTL cache.
+"""IP-to-geo lookup with in-memory TTL cache.
 
-Behaviour:
-- For a public routable IP → look it up directly.
-- For loopback/private/link-local IPs (typical when the server is hit from
-  the same host without a reverse proxy, or inside Docker's bridge network),
-  we instead ask ip-api.com for the *caller's* public IP (no explicit IP
-  in the query), which returns whatever the ip-api service sees as our
-  outbound IP. This is good enough for local development and single-host
-  deployments; in production put a reverse proxy in front that forwards
-  X-Forwarded-For and we will see the real client IP.
+Supported providers (GEO_PROVIDER env var):
+  ip-api    – ip-api.com        free, HTTP only, 45 req/min (default)
+  ipwho     – ipwho.is          free, HTTPS, no hard rate limit
+  ipapi     – ipapi.co          free, HTTPS, 1000 req/day
+  ipinfo    – ipinfo.io         free 50k/mo, HTTPS, needs IPINFO_TOKEN
+
+For private/loopback IPs (local dev, Docker bridge) each provider falls back
+to auto-detecting the server's own public IP.
 """
 from __future__ import annotations
 
@@ -54,11 +53,16 @@ async def lookup(ip: str, force: bool = False) -> Optional[dict]:
         if now - ts < _TTL:
             return data
 
+    pub = ip if _is_public(ip) else ""
     try:
         if _PROVIDER == "ipinfo" and _IPINFO_TOKEN:
-            data = await _lookup_ipinfo(ip if _is_public(ip) else "")
+            data = await _lookup_ipinfo(pub)
+        elif _PROVIDER == "ipwho":
+            data = await _lookup_ipwho(pub)
+        elif _PROVIDER == "ipapi":
+            data = await _lookup_ipapi_co(pub)
         else:
-            data = await _lookup_ipapi(ip if _is_public(ip) else "")
+            data = await _lookup_ipapi(pub)
     except Exception:
         return None
 
@@ -68,7 +72,7 @@ async def lookup(ip: str, force: bool = False) -> Optional[dict]:
 
 
 async def _lookup_ipapi(ip: str) -> Optional[dict]:
-    # Empty ip → ip-api reports the caller's IP (i.e. our server's outbound IP).
+    """ip-api.com — free, HTTP only, 45 req/min."""
     path = ip if ip else ""
     url = (
         "http://ip-api.com/json/"
@@ -97,8 +101,56 @@ async def _lookup_ipapi(ip: str) -> Optional[dict]:
     }
 
 
+async def _lookup_ipwho(ip: str) -> Optional[dict]:
+    """ipwho.is — free, HTTPS, no hard rate limit, no key required."""
+    url = f"https://ipwho.is/{ip}" if ip else "https://ipwho.is/"
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        r = await client.get(url)
+        if r.status_code != 200:
+            return None
+        d = r.json()
+    if not d.get("success"):
+        return None
+    asn = d.get("connection", {}).get("asn") or ""
+    isp = d.get("connection", {}).get("isp") or d.get("connection", {}).get("org") or ""
+    org = f"AS{asn} {isp}".strip() if asn else isp
+    return {
+        "ip": d.get("ip") or ip,
+        "city": d.get("city") or "",
+        "region": d.get("region") or "",
+        "country": d.get("country_code") or "",
+        "loc": f"{d.get('latitude', 0)},{d.get('longitude', 0)}",
+        "org": org,
+        "timezone": d.get("timezone", {}).get("id") or "",
+    }
+
+
+async def _lookup_ipapi_co(ip: str) -> Optional[dict]:
+    """ipapi.co — free, HTTPS, 1000 req/day, no key required."""
+    url = f"https://ipapi.co/{ip}/json/" if ip else "https://ipapi.co/json/"
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        r = await client.get(url, headers={"User-Agent": "probe-tool/1.0"})
+        if r.status_code != 200:
+            return None
+        d = r.json()
+    if d.get("error"):
+        return None
+    asn = d.get("asn") or ""
+    isp = d.get("org") or ""
+    org = f"{asn} {isp}".strip() if asn else isp
+    return {
+        "ip": d.get("ip") or ip,
+        "city": d.get("city") or "",
+        "region": d.get("region") or "",
+        "country": d.get("country_code") or "",
+        "loc": f"{d.get('latitude', 0)},{d.get('longitude', 0)}",
+        "org": org,
+        "timezone": d.get("timezone") or "",
+    }
+
+
 async def _lookup_ipinfo(ip: str) -> Optional[dict]:
-    # Empty ip → ipinfo returns the caller's own IP data.
+    """ipinfo.io — free 50k/mo, HTTPS, requires IPINFO_TOKEN."""
     url = f"https://ipinfo.io/{ip}/json" if ip else "https://ipinfo.io/json"
     params = {"token": _IPINFO_TOKEN} if _IPINFO_TOKEN else None
     async with httpx.AsyncClient(timeout=5.0) as client:
