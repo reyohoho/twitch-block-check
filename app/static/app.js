@@ -44,6 +44,11 @@ const T = {
   show_all:      {en:"All",                                 ru:"Все"},
   show_blocked:  {en:"Blocked only",                        ru:"Только заблокированные"},
   no_failures:   {en:"No failures — all reachable",         ru:"Сбоев нет — всё доступно"},
+  share:         {en:"Share",                               ru:"Поделиться"},
+  share_tooltip: {en:"Copy link to this report",            ru:"Скопировать ссылку на отчёт"},
+  share_copied:  {en:"Link copied to clipboard",            ru:"Ссылка скопирована"},
+  share_copy_prompt:{en:"Copy the link:",                   ru:"Скопируйте ссылку:"},
+  shared_report: {en:"Viewing shared report",               ru:"Просмотр отчёта"},
   show_local:    {en:"Local only",                          ru:"Только локальные"},
   show_https:    {en:"HTTPS",                               ru:"HTTPS"},
   show_wss:      {en:"WebSocket",                           ru:"WebSocket"},
@@ -92,6 +97,7 @@ let russiaGeoJson = null, cityData = {}, mapMode = "oblast";
 let cityMarkers = [], russiaInfoCtrl = null;
 let reportStatus = null;
 let reportSubmitting = false;
+let reportId = null;
 let priorityFilter = "all"; // "all" | "failed"
 let statsFilter    = "all"; // "all" | "failed"
 let testRunning = false;
@@ -546,12 +552,31 @@ function renderReportButtons(){
     document.getElementById("report-section-bottom").innerHTML = "";
     return;
   }
-  const blocked = allResults.filter(r=>isFailureStatus(r.status)).length;
-  const label = blocked > 0 ? t("report_btn_ready") : t("report_clean_ready");
-  // Submit is always enabled — no VPN gating. `apiReachable` is purely informational.
-  const btnHtml = `<button class="btn-green" onclick="submitReport()">${label}</button>`;
-  document.getElementById("report-section-top").innerHTML = btnHtml;
-  document.getElementById("report-section-bottom").innerHTML = btnHtml;
+  const html = reportId
+    ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn-share" onclick="shareReport()" title="${t("share_tooltip")}">🔗 ${t("share")}</button></div>`
+    : "";
+  document.getElementById("report-section-top").innerHTML = html;
+  document.getElementById("report-section-bottom").innerHTML = html;
+}
+
+async function shareReport(){
+  if(!reportId) return;
+  const url = `${location.origin}${location.pathname}?r=${reportId}`;
+  try{
+    await navigator.clipboard.writeText(url);
+    showToast(t("share_copied"));
+  }catch{
+    prompt(t("share_copy_prompt"), url);
+  }
+}
+
+function showToast(msg){
+  let el = document.getElementById("toast");
+  if(!el){ el = document.createElement("div"); el.id = "toast"; document.body.appendChild(el); }
+  el.textContent = msg;
+  el.className = "toast toast-visible";
+  clearTimeout(el._timer);
+  el._timer = setTimeout(() => el.className = "toast", 2500);
 }
 
 // ===== Main test =====
@@ -605,11 +630,12 @@ async function runTest(){
   async function worker(){
     while(idx < allEntries.length){
       const entry = allEntries[idx++];
-      const r = entry._dynamic ? await probeEntryReliability(entry) : await probeEntry(entry);
+      const useReliability = entry._dynamic || entry.reliability;
+      const r = useReliability ? await probeEntryReliability(entry) : await probeEntry(entry);
       const st = getResultStatus(r);
       priorityResults[entry.d] = {
         status:st, ms:r.ms, proto:entry.proto||"https",
-        ...(entry._dynamic && {successCount:r.successCount, totalCount:r.totalCount}),
+        ...(useReliability && {successCount:r.successCount, totalCount:r.totalCount}),
       };
       const result = {
         domain: entry.d,
@@ -640,7 +666,7 @@ async function runTest(){
       while(retryIdx < timedOut.length){
         const orig = timedOut[retryIdx++];
         const entry = allEntries.find(e => e.d === orig.domain) || {d: orig.domain, proto: orig.proto};
-        const r = await probeEntry(entry);
+        const r = (entry._dynamic || entry.reliability) ? await probeEntryReliability(entry) : await probeEntry(entry);
         const st = getResultStatus(r);
         if(st !== "timeout"){
           orig.status = st; orig.ms = r.ms;
@@ -669,10 +695,9 @@ async function runTest(){
   status.textContent = t("done");
   updateRunBtn();
   updateVpnWarn();
-  renderReportButtons();
   startPingPoll();
   startGeoRefresh();
-  submitReport();
+  await submitReport();
 }
 
 // ===== Render helpers =====
@@ -791,8 +816,9 @@ async function submitReport(){
   try{
     const r = await fetch("/api/report",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
     if(r.ok){
-      reportStatus = "ok"; el.innerHTML = ""; stopPingPoll();
-      // Refresh aggregated data so the new report appears on map and stats tab
+      const json = await r.json();
+      reportStatus = "ok"; reportId = json.report_id || null;
+      el.innerHTML = ""; stopPingPoll();
       loadStats();
       if(mapRussia) refreshMapData();
     } else throw new Error(r.status);
@@ -1319,5 +1345,36 @@ startGeoRefresh();
   targetsLoaded = true;
   updateRunBtn();
   el.remove();
+
+  // Shared report: ?r=N
+  const sharedId = new URLSearchParams(location.search).get("r");
+  if(sharedId) loadSharedReport(parseInt(sharedId, 10));
 })();
+
+async function loadSharedReport(id){
+  try{
+    const r = await fetch(`/api/report/${id}`);
+    if(!r.ok){ console.warn("shared report not found", id); return; }
+    const data = await r.json();
+    // Populate allResults from stored report
+    allResults = data.results.map(r => ({
+      domain: r.domain, category: r.category, twitch_cat: r.twitch_cat,
+      proto: r.proto, asn: r.asn, status: r.status, ms: r.ms, tags: r.tags||[],
+    }));
+    allResults.forEach(r => { priorityResults[r.domain] = {status:r.status, ms:r.ms, proto:r.proto}; });
+    reportId = id; reportStatus = "ok"; testDone = true; hasRunOnce = true;
+    const geo = {city: data.city, region: data.region, country: data.country, org: data.org};
+    geoData = geo; renderGeo(geo);
+    document.getElementById("priority-section").classList.remove("hidden");
+    document.getElementById("stats-section").classList.remove("hidden");
+    document.getElementById("live-section").classList.remove("hidden");
+    document.getElementById("world-section").classList.remove("hidden");
+    initWorldMap(); setTimeout(()=>mapWorld?.invalidateSize(), 100);
+    allResults.forEach(r => addWorldMarker(r));
+    renderPriorityCards(); renderSummary(); renderStats(); renderResults("all"); renderFilters();
+    updateRunBtn(); updateVpnWarn(); renderReportButtons();
+    const ts = data.ts ? new Date(data.ts).toLocaleString() : "";
+    showToast(`${t("shared_report")} #${id}${ts?" · "+ts:""}`);
+  }catch(e){ console.error("loadSharedReport", e); }
+}
 

@@ -191,6 +191,44 @@ async def api_report(
     return {"ok": True, "report_id": report_id}
 
 
+@app.get("/api/report/{report_id}")
+async def api_get_report(report_id: int) -> JSONResponse:
+    """Fetch a stored report by ID for share/permalink feature."""
+    import json as _j
+    with db.get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, ts, city, region, country, org, timeout_ms FROM reports WHERE id = ?",
+            (report_id,)
+        ).fetchone()
+        if not row:
+            return JSONResponse({"error": "not found"}, status_code=404)
+        results = conn.execute(
+            "SELECT domain, category, twitch_cat, proto, asn, status, ms, tags FROM results WHERE report_id = ?",
+            (report_id,)
+        ).fetchall()
+    return JSONResponse({
+        "id":      row["id"],
+        "ts":      row["ts"],
+        "city":    row["city"],
+        "region":  row["region"],
+        "country": row["country"],
+        "org":     row["org"],
+        "timeout_ms": row["timeout_ms"],
+        "results": [
+            {
+                "domain":     r["domain"],
+                "category":   r["category"],
+                "twitch_cat": r["twitch_cat"],
+                "proto":      r["proto"],
+                "asn":        r["asn"],
+                "status":     r["status"],
+                "ms":         r["ms"],
+                "tags":       _j.loads(r["tags"]) if r["tags"] else [],
+            }
+            for r in results
+        ],
+    })
+
 
 @app.get("/api/stats-filters")
 async def api_stats_filters() -> dict:

@@ -1,7 +1,7 @@
 {
   "ru": [],
   "intl": [
-    {"d": "twitch.tv",                                        "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "main",      "proto": "https", "tags": ["live-streams", "clips", "vods"]},
+    {"d": "twitch.tv",                                        "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "main",      "proto": "https", "tags": ["live-streams", "clips", "vods"], "reliability": true},
     {"d": "www.twitch.tv",                                    "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "main",      "proto": "https", "tags": ["live-streams", "clips", "vods"]},
     {"d": "m.twitch.tv",                                      "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "main",      "proto": "https", "tags": ["live-streams", "clips", "vods"]},
     {"d": "clips.twitch.tv",                                  "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "main",      "proto": "https", "tags": ["clips"]},
