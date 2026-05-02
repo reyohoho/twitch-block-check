@@ -44,8 +44,10 @@ CREATE TABLE IF NOT EXISTS results (
     asn          TEXT,
     status       TEXT    NOT NULL,     -- 'ok' | 'blocked' | 'timeout' | 'client'
     ms           INTEGER,
-    tags         TEXT                  -- JSON array, e.g. '["live-streams","clips"]'
+    tags         TEXT,                 -- JSON array, e.g. '["live-streams","clips"]'
+    is_dynamic   INTEGER NOT NULL DEFAULT 0  -- 1 = discovered at runtime (clip/vod/live CDN), not static targets.json
 );
+
 
 CREATE INDEX IF NOT EXISTS idx_results_report_id  ON results(report_id);
 CREATE INDEX IF NOT EXISTS idx_results_domain     ON results(domain);
@@ -57,6 +59,7 @@ _MIGRATIONS = [
     # 001 — add tags column (idempotent via ALTER TABLE … IF NOT EXISTS not available in old SQLite;
     #        we catch OperationalError instead)
     "ALTER TABLE results ADD COLUMN tags TEXT",
+    "ALTER TABLE results ADD COLUMN is_dynamic INTEGER NOT NULL DEFAULT 0",
 ]
 
 

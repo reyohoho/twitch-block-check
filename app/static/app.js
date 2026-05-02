@@ -252,7 +252,8 @@ function getStatusLabel(s){
   if(s==="blocked") return "BLOCKED";
   if(s==="timeout") return "TIMEOUT";
   if(s==="client") return "LOCAL";
-  return s.toUpperCase();
+  if(s==null || s==="") return "?";
+  return String(s).toUpperCase();
 }
 function isClientSideBlockError(err){
   const raw = [err?.name, err?.message, err?.cause?.name, err?.cause?.message,
@@ -646,6 +647,7 @@ async function runTest(){
         status: st,
         ms: r.ms,
         tags: entry.tags || [],
+        dynamic: !!entry._dynamic,
       };
       allResults.push(result);
       doneCount++;
@@ -810,6 +812,7 @@ async function submitReport(){
       domain:r.domain, category:r.category, asn:r.asn,
       status:r.status, ms:r.ms, twitch_cat:r.twitch_cat, proto:r.proto,
       tags: r.tags || [],
+      dynamic: !!r.dynamic,
     }))
   };
   el.textContent = t("submitting");
@@ -946,7 +949,7 @@ async function _probeAndAddResult(domain, tags) {
   };
   if (testDone) {
     const existing = allResults.find(x=>x.domain===domain);
-    const rec = {domain, category:"intl", twitch_cat:"streaming", proto:"https", asn:"AS16509", status:st, ms:r.ms, tags};
+    const rec = {domain, category:"intl", twitch_cat:"streaming", proto:"https", asn:"AS16509", status:st, ms:r.ms, tags, dynamic: true};
     if (existing) Object.assign(existing, rec); else allResults.push(rec);
     renderResults(currentFilter);
   }
@@ -1107,6 +1110,15 @@ function renderStatsCards(data){
 
   const structure = buildPriorityStructure();
   const isFailed = statsFilter === "failed";
+  const staticDomains = new Set(structure.flatMap(cat => cat.sites.map(s => s.d)));
+
+  // Dynamic CDN: all rows with is_dynamic=1 from every report (same filters), plus legacy rows not in targets (old DB without flag)
+  const dynMap = {...(data.dynamic_domains || {})};
+  for(const [d, s] of Object.entries(data.domains || {})){
+    if(staticDomains.has(d)) continue;
+    if(!dynMap[d] && s && s.total) dynMap[d] = s;
+  }
+  const dynamicEntries = Object.entries(dynMap);
 
   // Count total failed across all categories (for filter button label)
   let totalFailed = 0;
@@ -1116,9 +1128,6 @@ function renderStatsCards(data){
       if(s && s.total && _isFailed(s.ok/s.total*100)) totalFailed++;
     }
   }
-  // Also count dynamic failed
-  const staticDomains = new Set(structure.flatMap(cat => cat.sites.map(s => s.d)));
-  const dynamicEntries = Object.entries(data.domains).filter(([d]) => !staticDomains.has(d));
   for(const [, s] of dynamicEntries){
     if(s.total && _isFailed(s.ok/s.total*100)) totalFailed++;
   }
@@ -1348,33 +1357,56 @@ startGeoRefresh();
 
   // Shared report: ?r=N
   const sharedId = new URLSearchParams(location.search).get("r");
-  if(sharedId) loadSharedReport(parseInt(sharedId, 10));
+  if(sharedId) await loadSharedReport(parseInt(sharedId, 10));
 })();
 
 async function loadSharedReport(id){
+  if(!id || !Number.isFinite(id)) return;
   try{
     const r = await fetch(`/api/report/${id}`);
-    if(!r.ok){ console.warn("shared report not found", id); return; }
+    if(!r.ok){ console.warn("shared report not found", id); showToast(`Report #${id} not found`); return; }
     const data = await r.json();
-    // Populate allResults from stored report
-    allResults = data.results.map(r => ({
-      domain: r.domain, category: r.category, twitch_cat: r.twitch_cat,
-      proto: r.proto, asn: r.asn, status: r.status, ms: r.ms, tags: r.tags||[],
-    }));
+    const rows = Array.isArray(data.results) ? data.results : [];
+    const order = {blocked:0, timeout:1, client:2, ok:3};
+    allResults = rows.map(r => ({
+      domain: r.domain || "",
+      category: r.category || "intl",
+      twitch_cat: r.twitch_cat || "ref",
+      proto: r.proto || "https",
+      asn: r.asn || "?",
+      status: r.status || "timeout",
+      ms: Number(r.ms) || 0,
+      tags: Array.isArray(r.tags) ? r.tags : [],
+      dynamic: !!r.dynamic,
+    })).filter(x => x.domain)
+      .sort((a,b)=>(order[a.status]-order[b.status]) || a.domain.localeCompare(b.domain));
+
+    priorityResults = {};
     allResults.forEach(r => { priorityResults[r.domain] = {status:r.status, ms:r.ms, proto:r.proto}; });
-    reportId = id; reportStatus = "ok"; testDone = true; hasRunOnce = true;
+
+    reportId = id; reportStatus = "ok"; testDone = true; hasRunOnce = true; reportSubmitting = false;
+
+    showTab("test");
     const geo = {city: data.city, region: data.region, country: data.country, org: data.org};
     geoData = geo; renderGeo(geo);
+
     document.getElementById("priority-section").classList.remove("hidden");
     document.getElementById("stats-section").classList.remove("hidden");
     document.getElementById("live-section").classList.remove("hidden");
     document.getElementById("world-section").classList.remove("hidden");
+
+    if(mapWorld){ worldMarkers.forEach(m=>m.remove()); worldMarkers = []; }
     initWorldMap(); setTimeout(()=>mapWorld?.invalidateSize(), 100);
     allResults.forEach(r => addWorldMarker(r));
-    renderPriorityCards(); renderSummary(); renderStats(); renderResults("all"); renderFilters();
+
+    document.getElementById("live-feed").innerHTML = "";
+    for(const r of [...allResults].reverse()) addToLiveFeed(r);
+
+    renderPriorityCards(); renderSummary(); renderStats(); renderFilters(); renderResults("all");
     updateRunBtn(); updateVpnWarn(); renderReportButtons();
+
     const ts = data.ts ? new Date(data.ts).toLocaleString() : "";
     showToast(`${t("shared_report")} #${id}${ts?" · "+ts:""}`);
-  }catch(e){ console.error("loadSharedReport", e); }
+  }catch(e){ console.error("loadSharedReport", e); showToast(t("submit_fail")); }
 }
 

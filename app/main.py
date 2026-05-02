@@ -65,6 +65,7 @@ class ReportResult(BaseModel):
     twitch_cat: Optional[str] = None
     proto: Optional[str] = None
     tags: list[str] = []
+    dynamic: bool = False  # True for runtime CDN discovery (clip/vod/live), saved as is_dynamic in DB
 
 
 class ReportPayload(BaseModel):
@@ -167,8 +168,8 @@ async def api_report(
         report_id = cur.lastrowid
         conn.executemany(
             """
-            INSERT INTO results (report_id, domain, category, twitch_cat, proto, asn, status, ms, tags)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO results (report_id, domain, category, twitch_cat, proto, asn, status, ms, tags, is_dynamic)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -181,13 +182,18 @@ async def api_report(
                     r.status,
                     int(r.ms or 0),
                     _json.dumps(r.tags, ensure_ascii=False) if r.tags else None,
+                    1 if r.dynamic else 0,
                 )
                 for r in payload.results
             ],
         )
         conn.commit()
 
-    log.info("report saved id=%s results=%d region=%s city=%s", report_id, len(payload.results), g.region, g.city)
+    ndyn = sum(1 for r in payload.results if r.dynamic)
+    log.info(
+        "report saved id=%s results=%d dynamic_rows=%d region=%s city=%s",
+        report_id, len(payload.results), ndyn, g.region, g.city,
+    )
     return {"ok": True, "report_id": report_id}
 
 
@@ -203,7 +209,7 @@ async def api_get_report(report_id: int) -> JSONResponse:
         if not row:
             return JSONResponse({"error": "not found"}, status_code=404)
         results = conn.execute(
-            "SELECT domain, category, twitch_cat, proto, asn, status, ms, tags FROM results WHERE report_id = ?",
+            "SELECT domain, category, twitch_cat, proto, asn, status, ms, tags, is_dynamic FROM results WHERE report_id = ?",
             (report_id,)
         ).fetchall()
     return JSONResponse({
@@ -219,15 +225,26 @@ async def api_get_report(report_id: int) -> JSONResponse:
                 "domain":     r["domain"],
                 "category":   r["category"],
                 "twitch_cat": r["twitch_cat"],
-                "proto":      r["proto"],
-                "asn":        r["asn"],
-                "status":     r["status"],
-                "ms":         r["ms"],
-                "tags":       _j.loads(r["tags"]) if r["tags"] else [],
+                "proto":      r["proto"] or "https",
+                "asn":        r["asn"] or "?",
+                "status":     r["status"] or "timeout",
+                "ms":         int(r["ms"] or 0),
+                "tags":       _safe_json_list(r["tags"], _j),
+                "dynamic":    bool(r["is_dynamic"]),
             }
             for r in results
         ],
     })
+
+
+def _safe_json_list(raw: str | None, _j) -> list:
+    if not raw:
+        return []
+    try:
+        v = _j.loads(raw)
+        return v if isinstance(v, list) else []
+    except Exception:
+        return []
 
 
 @app.get("/api/stats-filters")
