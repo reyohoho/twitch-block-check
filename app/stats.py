@@ -20,9 +20,32 @@ def _period_clause(period: Optional[str]) -> tuple[str, tuple]:
     return "", ()
 
 
-# ipinfo.io → GeoJSON name_latin mismatches
+# ipinfo.io → russia.geojson `name_latin` aliases.
+#
+# ipinfo's `region` field uses short / colloquial names ("Tatarstan",
+# "Bashkortostan", "Udmurtia", ...) while the GeoJSON we render against
+# uses formal names ("Republic of Tatarstan", "Udmurt Republic", ...).
+# Without this map the corresponding regions silently disappear from the
+# choropleth even though city-level aggregates show their reports.
 _REGION_ALIASES: dict[str, str] = {
-    "Mariy-El Republic": "Mari El Republic",
+    # Republics
+    "Bashkortostan":         "Republic of Bashkortostan",
+    "Buryatia":              "Republic of Buryatia",
+    "Chuvashia":             "Chuvash Republic",
+    "Dagestan":              "Republic of Dagestan",
+    "Ingushetia":            "Republic of Ingushetia",
+    "Kabardino-Balkaria":    "Kabardino-Balkar Republic",
+    "Karachay-Cherkessia":   "Karachay-Cherkess Republic",
+    "Mariy-El Republic":     "Mari El Republic",
+    "Sakha Republic":        "Sakha (Yakutia) Republic",
+    "Tatarstan":             "Republic of Tatarstan",
+    "Tyva Republic":         "Tuva Republic",
+    "Udmurtia":              "Udmurt Republic",
+    # Oblasts / krais where ipinfo and the GeoJSON disagree on the suffix
+    "Kaliningrad":              "Kaliningrad Oblast",
+    "Kemerovo Oblast–Kuzbass":  "Kemerovo Oblast",
+    # Transliteration mismatch ("Mansiysk" vs "Mansi", "Ugra" vs "Yugra")
+    "Khanty-Mansiysk Autonomous Okrug – Ugra": "Khanty–Mansi Autonomous Okrug – Yugra",
 }
 
 
@@ -60,7 +83,15 @@ def map_data(period: Optional[str] = None) -> dict:
     with db.get_conn() as conn:
         for row in conn.execute(sql, pa):
             key = _normalize_region(row["region"])
-            out[key] = {k: row[k] for k in row.keys() if k != "region"}
+            payload = {k: row[k] for k in row.keys() if k != "region"}
+            existing = out.get(key)
+            if existing is None:
+                out[key] = payload
+            else:
+                # Two DB region names collapsed to the same GeoJSON key
+                # (e.g. "Kaliningrad" + "Kaliningrad Oblast"). Merge counters.
+                for k, v in payload.items():
+                    existing[k] = (existing.get(k) or 0) + (v or 0)
     return out
 
 
