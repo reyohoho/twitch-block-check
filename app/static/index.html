@@ -29,6 +29,9 @@ h1{font-size:1.3em;color:#fff}
 .geo-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .geo-dot.ru{background:#22c55e;box-shadow:0 0 6px #22c55e}
 .geo-dot.other{background:#ef4444;box-shadow:0 0 6px #ef4444}
+.ip-blur{display:inline-block;cursor:pointer;filter:blur(5px);transition:filter .15s;user-select:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#fff;border-radius:3px;padding:0 2px;background:#222}
+.ip-blur:hover{filter:blur(3px);background:#2a2a2a}
+.ip-blur.revealed{filter:none;cursor:default;user-select:text;background:transparent;padding:0}
 @keyframes geoprog{from{width:0}to{width:100%}}
 
 button{background:#9146ff;color:#fff;border:none;border-radius:6px;padding:10px 20px;font-size:.95em;cursor:pointer;width:100%;margin-bottom:8px;transition:background .2s}

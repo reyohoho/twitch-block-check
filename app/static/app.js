@@ -73,6 +73,8 @@ const T = {
   available:     {en:"available",                           ru:"доступно"},
   unavailable:   {en:"unavailable",                         ru:"недоступно"},
   geo_unavailable:{en:"Location check failed",              ru:"Не удалось определить местоположение"},
+  ip_reveal:     {en:"Click to reveal IP",                  ru:"Нажмите, чтобы показать IP"},
+  ip_hide:       {en:"Click to hide IP",                    ru:"Нажмите, чтобы скрыть IP"},
   // twitch category names
   cat_main:      {en:"Twitch Main / Web",                   ru:"Twitch Main / Web"},
   cat_api:       {en:"Twitch API / GraphQL",                ru:"Twitch API / GraphQL"},
@@ -107,6 +109,8 @@ let testRunning = false;
 let apiReachable = false, pingInterval = null;
 let geoInterval = null;
 let _geoGen = 0, _geoFails = 0, _geoRefreshing = false;
+let currentTab = "test";
+let _ipRevealed = false;
 
 // Russia cities/regions/ISPs for manual geo fallback
 const RU_ISPS = [
@@ -150,13 +154,27 @@ async function forceRefreshGeo(){
   geoData = data;
   renderGeo(geoData); updateRunBtn(); updateVpnWarn();
 }
+function _escAttr(s){ return String(s).replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+function _ipChunkHtml(ip){
+  // IP is shown only on the test tab; hidden entirely on map/stats.
+  if(currentTab !== "test") return "";
+  const safe = _escAttr(ip || "?");
+  const cls = _ipRevealed ? "ip-blur revealed" : "ip-blur";
+  const tip = _ipRevealed ? t("ip_hide") : t("ip_reveal");
+  return ` <span class="${cls}" title="${_escAttr(tip)}" onclick="event.stopPropagation();toggleIpReveal()">${safe}</span> ·`;
+}
+function toggleIpReveal(){
+  _ipRevealed = !_ipRevealed;
+  if(geoData) renderGeo(geoData);
+}
 function renderGeo(g){
   if(!g){
     document.getElementById("geo-box").innerHTML = `<div class="geo-card"><div class="geo-dot other" style="opacity:.4"></div><span style="color:#888">${t("geo_unavailable")}</span></div>`;
     return;
   }
   const isRu = g.country==="RU";
-  const info = `<b>${t("geo_net")}:</b> ${g.ip||"?"} · ${g.city||"?"}, ${g.region||"?"}, ${g.country||"?"} · ISP: ${g.org||"?"}`;
+  const ipHtml = _ipChunkHtml(g.ip);
+  const info = `<b>${t("geo_net")}:</b>${ipHtml} ${g.city||"?"}, ${g.region||"?"}, ${g.country||"?"} · ISP: ${g.org||"?"}`;
   document.getElementById("geo-box").innerHTML = `
     <div class="geo-card" onclick="forceRefreshGeo()" style="cursor:pointer">
       <div class="geo-dot ${isRu?"ru":"other"}"></div>
@@ -1055,6 +1073,9 @@ function showTab(name){
   document.querySelectorAll(".tab").forEach(x=>x.classList.remove("active"));
   document.getElementById("tab-"+name).classList.add("active");
   ["test","map","stats"].forEach(n=>document.getElementById("panel-"+n).classList.toggle("hidden",n!==name));
+  currentTab = name;
+  if(name !== "test") _ipRevealed = false;
+  if(geoData) renderGeo(geoData);
   if(name==="map") initRussiaMap();
   if(name==="stats") initStatsTab();
 }
