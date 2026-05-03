@@ -53,6 +53,26 @@ def _normalize_region(name: str) -> str:
     return _REGION_ALIASES.get(name, name)
 
 
+def _region_db_aliases(geojson_name: str) -> list[str]:
+    """Return every DB-side region name that maps to the given GeoJSON name.
+
+    The frontend passes us the formal `name_latin` value (e.g. "Republic of
+    Tatarstan") when the user clicks a polygon, but the DB stores ipinfo's
+    short form ("Tatarstan") and sometimes both spellings coexist. We need
+    to query for *all* of them.
+    """
+    aliases = [src for src, dst in _REGION_ALIASES.items() if dst == geojson_name]
+    aliases.append(geojson_name)  # also match rows that already use the formal name
+    # Preserve order, dedupe.
+    seen: set[str] = set()
+    out: list[str] = []
+    for a in aliases:
+        if a not in seen:
+            seen.add(a)
+            out.append(a)
+    return out
+
+
 def map_data(period: Optional[str] = None) -> dict:
     """Aggregate by region: total/ok/blocked/timeout counts split by ru/intl category."""
     pc, pa = _period_clause(period)
@@ -137,7 +157,10 @@ def region_isps(region: Optional[str] = None, city: Optional[str] = None) -> dic
     if city:
         where, args = "r.city = ?", (city,)
     elif region:
-        where, args = "r.region = ?", (region,)
+        # Map the GeoJSON name back to every DB-side spelling that aliases to it.
+        names = _region_db_aliases(region)
+        placeholders = ",".join("?" * len(names))
+        where, args = f"r.region IN ({placeholders})", tuple(names)
     else:
         return {}
     sql = f"""

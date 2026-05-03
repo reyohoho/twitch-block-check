@@ -185,9 +185,20 @@ function renderGeo(g){
   else { document.getElementById("geo-alert").innerHTML = `<div class="alert alert-warn">${t("not_russia")}</div>`; }
 }
 async function refreshGeo(){ const gen = ++_geoGen; const d = await getGeo(); if(gen !== _geoGen) return; geoData = d; renderGeo(geoData); updateRunBtn(); updateVpnWarn(); }
+// Adaptive refresh: poll faster while we still have nothing,
+// and only sip lightly once geo is known (just to catch a VPN toggle).
+async function _scheduledGeoTick(){
+  // Skip when not visible — a backgrounded tab shouldn't burn through API quota.
+  if(typeof document !== "undefined" && document.hidden) return;
+  // Don't keep retrying a failed lookup at full speed.
+  if(_geoFails >= 3 && geoData) return;
+  await refreshGeo();
+}
 function startGeoRefresh(){
   if(!geoData) document.getElementById("geo-box").innerHTML = geoProgressHTML(t("checking"));
-  refreshGeo(); geoInterval = setInterval(refreshGeo, 15000);
+  refreshGeo();
+  if(geoInterval) clearInterval(geoInterval);
+  geoInterval = setInterval(_scheduledGeoTick, 60000);
 }
 function stopGeoRefresh(){ if(geoInterval){clearInterval(geoInterval); geoInterval=null;} }
 
