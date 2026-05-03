@@ -45,7 +45,7 @@
     {"d": "supervisor.ext-twitch.tv",                         "asn": "AS16509", "country": "US", "city": "Ashburn",       "lat": 39.0438, "lon": -77.4874,  "cat": "ext",       "proto": "https", "tags": ["vods"]},
     {"d": "www.gstatic.com",                                  "asn": "AS15169", "country": "US", "city": "Mountain View", "lat": 37.4225, "lon": -122.085,  "cat": "ext",       "proto": "https", "tags": ["live-streams", "clips", "vods"]},
 
-    {"d": "ext.rte.net.ru",                                   "asn": "AS12389", "country": "RU", "city": "Moscow",        "lat": 55.7558, "lon": 37.6173,   "cat": "proxy",     "proto": "https", "note": "TSPU/RKN transparent proxy (port 8443)", "tags": ["live-streams", "vods"]},
-    {"d": "proxy4.rte.net.ru",                                "asn": "AS12389", "country": "RU", "city": "Moscow",        "lat": 55.7558, "lon": 37.6173,   "cat": "proxy",     "proto": "https", "note": "TSPU/RKN transparent proxy", "tags": ["live-streams", "vods"]}
+    {"d": "ext.rte.net.ru",                                   "asn": "AS12389", "country": "RU", "city": "Moscow",        "lat": 55.7558, "lon": 37.6173,   "cat": "proxy",     "proto": "https", "note": "RTE", "tags": ["live-streams", "vods"]},
+    {"d": "proxy4.rte.net.ru",                                "asn": "AS12389", "country": "RU", "city": "Moscow",        "lat": 55.7558, "lon": 37.6173,   "cat": "proxy",     "proto": "https", "note": "ReYohoho twitch proxy", "tags": ["live-streams", "vods"]}
   ]
 }

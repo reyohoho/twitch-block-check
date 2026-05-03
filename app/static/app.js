@@ -84,7 +84,7 @@ const T = {
   cat_analytics: {en:"Analytics / Tracking",                ru:"Аналитика / Трекинг"},
   cat_dns:       {en:"DNS",                                 ru:"DNS"},
   cat_ext:       {en:"Extensions / Third-party",            ru:"Расширения / Сторонние"},
-  cat_proxy:     {en:"Proxy (RKN/TSPU)",                    ru:"Прокси (РКН/ТСПУ)"},
+  cat_proxy:     {en:"RTE",                    ru:"RTE"},
 };
 function t(k){ return T[k]?.[lang] || T[k]?.en || k; }
 
