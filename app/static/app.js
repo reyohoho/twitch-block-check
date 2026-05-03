@@ -49,6 +49,9 @@ const T = {
   share_copied:  {en:"Link copied to clipboard",            ru:"Ссылка скопирована"},
   share_copy_prompt:{en:"Copy the link:",                   ru:"Скопируйте ссылку:"},
   shared_report: {en:"Viewing shared report",               ru:"Просмотр отчёта"},
+  check_others:  {en:"Check other services",                ru:"Проверить другие сервисы"},
+  check_others_tooltip:{en:"Open probe.trolling.website to check other web services",
+                       ru:"Открыть probe.trolling.website для проверки других веб-сервисов"},
   show_local:    {en:"Local only",                          ru:"Только локальные"},
   show_https:    {en:"HTTPS",                               ru:"HTTPS"},
   show_wss:      {en:"WebSocket",                           ru:"WebSocket"},
@@ -555,7 +558,7 @@ function renderReportButtons(){
     return;
   }
   const html = reportId
-    ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn-share" onclick="shareReport()" title="${t("share_tooltip")}">🔗 ${t("share")}</button></div>`
+    ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn-share" onclick="shareReport()" title="${t("share_tooltip")}">🔗 ${t("share")}</button><a class="btn-share btn-others" href="https://probe.trolling.website/" target="_blank" rel="noopener noreferrer" title="${t("check_others_tooltip")}">🌐 ${t("check_others")}</a></div>`
     : "";
   document.getElementById("report-section-top").innerHTML = html;
   document.getElementById("report-section-bottom").innerHTML = html;

@@ -36,7 +36,8 @@ button:hover{background:#772ce8}
 button:disabled{background:#333;color:#666;cursor:not-allowed}
 .btn-green{background:#16a34a}.btn-green:hover{background:#15803d}
 .btn-yellow{background:#b45309}.btn-yellow:hover{background:#92400e}
-.btn-share{background:#1a4a7a;color:#7dc3ff;border:1px solid #2a6aaa;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.82em;font-weight:600;transition:background .15s}.btn-share:hover{background:#1e5a8a}
+.btn-share{background:#1a4a7a;color:#7dc3ff;border:1px solid #2a6aaa;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.82em;font-weight:600;transition:background .15s;text-decoration:none;display:inline-block}.btn-share:hover{background:#1e5a8a;color:#7dc3ff}
+.btn-others{background:#3a1a5e;color:#c792ff;border-color:#5a2a8e}.btn-others:hover{background:#4a2a7e;color:#c792ff}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a1a2e;color:#7dc3ff;border:1px solid #2a6aaa;padding:10px 20px;border-radius:8px;font-size:.85em;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;z-index:9999}
 .toast.toast-visible{opacity:1;transform:translateX(-50%) translateY(0)}
 
@@ -145,6 +146,10 @@ button:disabled{background:#333;color:#666;cursor:not-allowed}
 .tag-badge{display:inline-flex;align-items:center;background:#1a0a2e;color:#a78bfa;padding:1px 5px;border-radius:3px;font-size:.58em;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
 .ci-tags{display:flex;flex-wrap:wrap;gap:2px}
 .feed-tags{display:flex;flex-wrap:wrap;gap:2px;align-items:center}
+
+.footer{text-align:center;padding:18px 12px 24px;margin-top:24px;border-top:1px solid #1a1a1a;color:#666;font-size:.78em}
+.footer a{color:#9146ff;text-decoration:none;margin-left:4px}
+.footer a:hover{text-decoration:underline}
 </style>
 </head>
 <body>
@@ -259,6 +264,12 @@ button:disabled{background:#333;color:#666;cursor:not-allowed}
 </div>
 
 </div>
+
+<footer class="footer">
+  <span data-en="Inspired by" data-ru="Вдохновлено проектом"></span>
+  <a href="https://probe.trolling.website/" target="_blank" rel="noopener noreferrer">probe.trolling.website</a>
+</footer>
+
 <script src="/static/app.js"></script>
 </body>
 </html>
