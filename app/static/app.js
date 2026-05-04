@@ -329,8 +329,8 @@ async function probeHttps(url, timeoutMs = TIMEOUT_MS){
 
 // Reliability probe: hit the CDN domain N times with delayMs between requests.
 // ok = all N succeeded; stores successCount/totalCount for display.
-const RELIABILITY_TIMES   = 13;
-const RELIABILITY_DELAY   = 50;   // ms between requests
+const RELIABILITY_TIMES   = 10;
+const RELIABILITY_DELAY   = 500;   // ms between requests
 const RELIABILITY_TIMEOUT = 3000; // per-request timeout
 
 async function probeEntryReliability(entry, times = RELIABILITY_TIMES, delayMs = RELIABILITY_DELAY) {
