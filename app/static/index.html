@@ -41,6 +41,7 @@ button:disabled{background:#333;color:#666;cursor:not-allowed}
 .btn-yellow{background:#b45309}.btn-yellow:hover{background:#92400e}
 .btn-share{background:#1a4a7a;color:#7dc3ff;border:1px solid #2a6aaa;padding:6px 14px;border-radius:6px;cursor:pointer;font-size:.82em;font-weight:600;transition:background .15s;text-decoration:none;display:inline-block}.btn-share:hover{background:#1e5a8a;color:#7dc3ff}
 .btn-others{background:#3a1a5e;color:#c792ff;border-color:#5a2a8e}.btn-others:hover{background:#4a2a7e;color:#c792ff}
+.btn-dpi{background:#3a1a08;color:#f5b25a;border-color:#5e3010}.btn-dpi:hover{background:#4e2a14;color:#ffcc88}
 .toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a1a2e;color:#7dc3ff;border:1px solid #2a6aaa;padding:10px 20px;border-radius:8px;font-size:.85em;opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;z-index:9999}
 .toast.toast-visible{opacity:1;transform:translateX(-50%) translateY(0)}
 
@@ -103,6 +104,11 @@ button:disabled{background:#333;color:#666;cursor:not-allowed}
 .asn-table th{text-align:left;padding:5px 8px;background:#1a1a1a;color:#888;font-weight:600;position:sticky;top:0;z-index:1}
 .asn-table td{padding:4px 8px;border-bottom:1px solid #1a1a1a}
 .asn-table tr:hover{background:#1a1a1a}
+.asn-table tr.isp-row:hover{background:#1c1c2a}
+.asn-table tr.isp-reason-row td{border-bottom:none;padding-top:0}
+.asn-table tr.isp-detail-row td{border-bottom:1px solid #222;padding-top:0;background:#0d0d12}
+.asn-table tr.isp-detail-row .asn-table{font-size:.92em;background:transparent}
+.asn-table tr.isp-detail-row .asn-table th{background:transparent;border-bottom:1px solid #1f1f24}
 .asn-wrap{max-height:350px;overflow-y:auto;margin-bottom:10px}
 .bar{display:inline-block;height:10px;border-radius:2px;vertical-align:middle}
 
@@ -149,6 +155,18 @@ button:disabled{background:#333;color:#666;cursor:not-allowed}
 .tag-badge{display:inline-flex;align-items:center;background:#1a0a2e;color:#a78bfa;padding:1px 5px;border-radius:3px;font-size:.58em;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
 .ci-tags{display:flex;flex-wrap:wrap;gap:2px}
 .feed-tags{display:flex;flex-wrap:wrap;gap:2px;align-items:center}
+
+/* DPI verdict badges (TCP 16-20 freeze, RST/SNI tear, alive timeout, local) */
+.dpi-badge{display:inline-flex;align-items:center;padding:1px 6px;border-radius:3px;font-size:.62em;font-weight:700;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap;flex-shrink:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid transparent}
+.dpi-badge.dpi-tcp1620 {background:#3a0a0a;color:#ff7878;border-color:#5a1a1a}
+.dpi-badge.dpi-tcp1620p{background:#2a1a00;color:#f5b25a;border-color:#4a2a00}
+.dpi-badge.dpi-rst     {background:#3a1a00;color:#fb923c;border-color:#5a2a00}
+.dpi-badge.dpi-dead    {background:#1a1a1a;color:#a1a1aa;border-color:#333}
+.dpi-badge.dpi-local   {background:#0a1830;color:#7dc3ff;border-color:#1a2e5e}
+
+.socket-warn{background:#1a1208;border:1px solid #4a3508;color:#f5b25a;border-radius:8px;padding:9px 13px;margin:10px 0;font-size:.78em;line-height:1.45}
+.socket-warn b{color:#fff}
+.socket-warn code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;background:#0a0a0a;padding:1px 5px;border-radius:3px;color:#ffd28a;border:1px solid #3a2a08}
 
 .footer{text-align:center;padding:18px 12px 24px;margin-top:24px;border-top:1px solid #1a1a1a;color:#666;font-size:.78em}
 .footer a{color:#9146ff;text-decoration:none;margin-left:4px}
@@ -213,6 +231,10 @@ button:disabled{background:#333;color:#666;cursor:not-allowed}
     <div id="live-cdn-result" style="margin-top:4px"></div>
   </div>
   <button id="run-btn" onclick="runTest()" disabled></button>
+  <div id="socket-warn" class="socket-warn">
+    <b>⚠️</b>
+    <span id="socket-warn-text" data-en="" data-ru=""></span>
+  </div>
   <div id="status"></div>
   <div class="progress-bar"><div class="progress-fill" id="progress"></div></div>
   <div id="summary-container"></div>
@@ -269,8 +291,19 @@ button:disabled{background:#333;color:#666;cursor:not-allowed}
 </div>
 
 <footer class="footer">
-  <span data-en="Inspired by" data-ru="Вдохновлено проектом"></span>
-  <a href="https://probe.trolling.website/" target="_blank" rel="noopener noreferrer">probe.trolling.website</a>
+  <div style="margin-bottom:6px">
+    <span data-en="DPI probe (TCP 16-20 method) ported from" data-ru="DPI-проба (метод TCP 16-20) портирована из"></span>
+    <a href="https://github.com/hyperion-cs/dpi-checkers" target="_blank" rel="noopener noreferrer">hyperion-cs/dpi-checkers</a>
+    <span> · </span>
+    <span data-en="background:" data-ru="контекст:"></span>
+    <a href="https://github.com/net4people/bbs/issues/490" target="_blank" rel="noopener noreferrer">net4people/bbs#490</a>
+  </div>
+  <div>
+    <span data-en="Inspired by" data-ru="Вдохновлено проектами"></span>
+    <a href="https://probe.trolling.website/" target="_blank" rel="noopener noreferrer">probe.trolling.website</a>
+    <span>,</span>
+    <a href="https://github.com/hyperion-cs/dpi-checkers" target="_blank" rel="noopener noreferrer">hyperion-cs/dpi-checkers</a>
+  </div>
 </footer>
 
 <script src="/static/app.js"></script>

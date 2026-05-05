@@ -153,7 +153,16 @@ def city_data(period: Optional[str] = None) -> dict:
 
 
 def region_isps(region: Optional[str] = None, city: Optional[str] = None) -> dict:
-    """ISP breakdown for a region or city."""
+    """ISP breakdown for a region or city.
+
+    Returns one entry per ISP with:
+      - reports / total / ok / blocked / timeout — high-level counters
+      - dpi_tcp1620 / dpi_tcp1620_probably / dpi_rst / dpi_alive_timeout —
+        block reason breakdown (NULL on legacy rows, hence may be 0).
+      - by_cat — { twitch_cat: { ok, blocked, timeout, total } } so the UI
+        can show *which Twitch sub-system* breaks at this ISP (e.g. 100% chat
+        but 0% streaming is the typical TCP 16-20 fingerprint on AWS edges).
+    """
     if city:
         where, args = "r.city = ?", (city,)
     elif region:
@@ -163,23 +172,59 @@ def region_isps(region: Optional[str] = None, city: Optional[str] = None) -> dic
         where, args = f"r.region IN ({placeholders})", tuple(names)
     else:
         return {}
-    sql = f"""
+    base_where = (
+        f"{where} AND r.org IS NOT NULL AND r.org!='' "
+        "AND res.status IN ('ok','blocked','timeout')"
+    )
+
+    sql_isp = f"""
     SELECT
       r.org                                       AS isp,
       COUNT(DISTINCT r.id)                        AS reports,
       COUNT(res.id)                               AS total,
       SUM(CASE WHEN res.status='ok'      THEN 1 ELSE 0 END) AS ok,
       SUM(CASE WHEN res.status='blocked' THEN 1 ELSE 0 END) AS blocked,
+      SUM(CASE WHEN res.status='timeout' THEN 1 ELSE 0 END) AS timeout,
+      SUM(CASE WHEN res.reason='tcp1620'           THEN 1 ELSE 0 END) AS dpi_tcp1620,
+      SUM(CASE WHEN res.reason='tcp1620_probably'  THEN 1 ELSE 0 END) AS dpi_tcp1620_probably,
+      SUM(CASE WHEN res.reason='rst'               THEN 1 ELSE 0 END) AS dpi_rst,
+      SUM(CASE WHEN res.reason='alive_timeout'     THEN 1 ELSE 0 END) AS dpi_alive_timeout
+    FROM reports r
+    JOIN results res ON res.report_id = r.id
+    WHERE {base_where}
+    GROUP BY r.org
+    """
+
+    sql_cats = f"""
+    SELECT
+      r.org                                       AS isp,
+      COALESCE(NULLIF(res.twitch_cat,''), 'ref')  AS cat,
+      COUNT(res.id)                               AS total,
+      SUM(CASE WHEN res.status='ok'      THEN 1 ELSE 0 END) AS ok,
+      SUM(CASE WHEN res.status='blocked' THEN 1 ELSE 0 END) AS blocked,
       SUM(CASE WHEN res.status='timeout' THEN 1 ELSE 0 END) AS timeout
     FROM reports r
     JOIN results res ON res.report_id = r.id
-    WHERE {where} AND r.org IS NOT NULL AND r.org!='' AND res.status IN ('ok','blocked','timeout')
-    GROUP BY r.org
+    WHERE {base_where}
+    GROUP BY r.org, COALESCE(NULLIF(res.twitch_cat,''), 'ref')
     """
+
     out: dict = {}
     with db.get_conn() as conn:
-        for row in conn.execute(sql, args):
+        for row in conn.execute(sql_isp, args):
             out[row["isp"]] = {k: row[k] for k in row.keys() if k != "isp"}
+            out[row["isp"]]["by_cat"] = {}
+        for row in conn.execute(sql_cats, args):
+            isp = row["isp"]
+            if isp not in out:
+                # Shouldn't happen — same WHERE — but be defensive.
+                continue
+            out[isp]["by_cat"][row["cat"]] = {
+                "total":   row["total"]   or 0,
+                "ok":      row["ok"]      or 0,
+                "blocked": row["blocked"] or 0,
+                "timeout": row["timeout"] or 0,
+            }
     return out
 
 
@@ -215,12 +260,17 @@ def stats_priority(
     if org:
         conds.append("r.org = ?");  args.append(org)
     cond = (" AND " + " AND ".join(conds)) if conds else ""
+    # `reason` (and the dpi/alive cols) is NULL on legacy rows, so the dpi_*
+    # counters land at 0 there — the existing status-based stats stay stable.
     sql = f"""
     SELECT res.domain        AS domain,
            COUNT(*)          AS total,
            SUM(CASE WHEN res.status='ok'      THEN 1 ELSE 0 END) AS ok,
            SUM(CASE WHEN res.status='blocked' THEN 1 ELSE 0 END) AS blocked,
            SUM(CASE WHEN res.status='timeout' THEN 1 ELSE 0 END) AS timeout,
+           SUM(CASE WHEN res.reason='tcp1620'           THEN 1 ELSE 0 END) AS dpi_tcp1620,
+           SUM(CASE WHEN res.reason='tcp1620_probably'  THEN 1 ELSE 0 END) AS dpi_tcp1620_probably,
+           SUM(CASE WHEN res.reason='rst'               THEN 1 ELSE 0 END) AS dpi_rst,
            MAX(CASE WHEN res.tags IS NOT NULL AND res.tags != 'null' THEN res.tags END) AS tags
     FROM reports r
     JOIN results res ON res.report_id = r.id
@@ -238,6 +288,9 @@ def stats_priority(
            SUM(CASE WHEN res.status='ok'      THEN 1 ELSE 0 END) AS ok,
            SUM(CASE WHEN res.status='blocked' THEN 1 ELSE 0 END) AS blocked,
            SUM(CASE WHEN res.status='timeout' THEN 1 ELSE 0 END) AS timeout,
+           SUM(CASE WHEN res.reason='tcp1620'           THEN 1 ELSE 0 END) AS dpi_tcp1620,
+           SUM(CASE WHEN res.reason='tcp1620_probably'  THEN 1 ELSE 0 END) AS dpi_tcp1620_probably,
+           SUM(CASE WHEN res.reason='rst'               THEN 1 ELSE 0 END) AS dpi_rst,
            MAX(CASE WHEN res.tags IS NOT NULL AND res.tags != 'null' THEN res.tags END) AS tags
     FROM reports r
     JOIN results res ON res.report_id = r.id
@@ -246,36 +299,30 @@ def stats_priority(
           {pc} {cond}
     GROUP BY res.domain
     """
+    import json as _j
+
+    def _row_to_domain(row) -> dict:
+        try:
+            tags = _j.loads(row["tags"]) if row["tags"] else []
+        except Exception:
+            tags = []
+        return {
+            "total":                row["total"]                or 0,
+            "ok":                   row["ok"]                   or 0,
+            "blocked":              row["blocked"]              or 0,
+            "timeout":              row["timeout"]              or 0,
+            "dpi_tcp1620":          row["dpi_tcp1620"]          or 0,
+            "dpi_tcp1620_probably": row["dpi_tcp1620_probably"] or 0,
+            "dpi_rst":              row["dpi_rst"]              or 0,
+            "tags":                 tags,
+        }
+
     domains: dict = {}
     dynamic_domains: dict = {}
     with db.get_conn() as conn:
         for row in conn.execute(sql, (*pa, *args)):
-            import json as _j
-            raw_tags = row["tags"]
-            try:
-                tags = _j.loads(raw_tags) if raw_tags else []
-            except Exception:
-                tags = []
-            domains[row["domain"]] = {
-                "total":   row["total"]   or 0,
-                "ok":      row["ok"]      or 0,
-                "blocked": row["blocked"] or 0,
-                "timeout": row["timeout"] or 0,
-                "tags":    tags,
-            }
+            domains[row["domain"]] = _row_to_domain(row)
         for row in conn.execute(dynamic_sql, (*pa, *args)):
-            import json as _j
-            raw_tags = row["tags"]
-            try:
-                tags = _j.loads(raw_tags) if raw_tags else []
-            except Exception:
-                tags = []
-            dynamic_domains[row["domain"]] = {
-                "total":   row["total"]   or 0,
-                "ok":      row["ok"]      or 0,
-                "blocked": row["blocked"] or 0,
-                "timeout": row["timeout"] or 0,
-                "tags":    tags,
-            }
+            dynamic_domains[row["domain"]] = _row_to_domain(row)
         rc = conn.execute(report_count_sql, (*pa, *args)).fetchone()
     return {"report_count": rc[0] if rc else 0, "domains": domains, "dynamic_domains": dynamic_domains}

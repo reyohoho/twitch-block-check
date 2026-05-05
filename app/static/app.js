@@ -52,6 +52,9 @@ const T = {
   check_others:  {en:"Check other services",                ru:"Проверить другие сервисы"},
   check_others_tooltip:{en:"Open probe.trolling.website to check other web services",
                        ru:"Открыть probe.trolling.website для проверки других веб-сервисов"},
+  check_dpi:     {en:"DPI checker",                          ru:"DPI чекер"},
+  check_dpi_tooltip:{en:"Open hyperion-cs/dpi-checkers TCP 16-20 checker for the broader DPI picture",
+                     ru:"Открыть TCP 16-20 чекер hyperion-cs/dpi-checkers для общей картины DPI"},
   show_local:    {en:"Local only",                          ru:"Только локальные"},
   show_https:    {en:"HTTPS",                               ru:"HTTPS"},
   show_wss:      {en:"WebSocket",                           ru:"WebSocket"},
@@ -87,6 +90,28 @@ const T = {
   cat_dns:       {en:"DNS",                                 ru:"DNS"},
   cat_ext:       {en:"Extensions / Third-party",            ru:"Расширения / Сторонние"},
   cat_proxy:     {en:"RTE",                    ru:"RTE"},
+
+  // DPI verdicts (mirrors ru/tcp-16-20 from hyperion-cs/dpi-checkers)
+  dpi_col_alive:    {en:"Alive",       ru:"Доступен"},
+  dpi_col_tcp1620:  {en:"TCP 16-20",   ru:"TCP 16-20"},
+  dpi_alive_yes:    {en:"Yes",         ru:"Да"},
+  dpi_alive_no:     {en:"No",          ru:"Нет"},
+  dpi_alive_unknown:{en:"Unknown",     ru:"Неизв."},
+  dpi_not_detected: {en:"No",          ru:"Нет"},
+  dpi_detected:     {en:"Detected",    ru:"Обнаружен"},
+  dpi_probably:     {en:"Probably",    ru:"Вероятно"},
+  dpi_possible:     {en:"Possible",    ru:"Возможно"},
+  dpi_unlikely:     {en:"Unlikely",    ru:"Маловер."},
+  dpi_skip:         {en:"Skip",        ru:"Пропуск"},
+  reason_tcp1620:   {en:"TCP 16-20",                ru:"TCP 16-20"},
+  reason_tcp1620p:  {en:"TCP 16-20 (likely)",       ru:"TCP 16-20 (вер.)"},
+  reason_rst:       {en:"RST / SNI",                ru:"RST / SNI"},
+  reason_alive:     {en:"Unreachable",              ru:"Недоступен"},
+  reason_local:     {en:"Local filter",             ru:"Локальный фильтр"},
+  socket_warn:      {en:"Browser cannot reset TCP sockets — Chrome may serve a probe from an already-frozen connection. For accurate results, run the test in incognito or flush sockets at chrome://net-internals/#sockets between runs.",
+                     ru:"Браузер не умеет ресетить TCP-сокеты — Chrome может выдать ответ из уже «замороженного» соединения. Для точных результатов запускайте тест в incognito или сбрасывайте сокеты на chrome://net-internals/#sockets между запусками."},
+  socket_warn_short:{en:"Browser pooling can bias re-runs — use incognito for a clean test.",
+                     ru:"Пулинг сокетов искажает повторные запуски — используйте incognito для чистого теста."},
 };
 function t(k){ return T[k]?.[lang] || T[k]?.en || k; }
 
@@ -221,6 +246,8 @@ function applyLang(){
   }
   document.getElementById("live-label").textContent = t("live_feed");
   document.getElementById("world-label").textContent = t("world_map");
+  const sw = document.getElementById("socket-warn-text");
+  if(sw) sw.textContent = t("socket_warn");
   document.querySelectorAll("[data-en]").forEach(el=>{
     el.textContent = el.getAttribute(`data-${lang}`) || el.getAttribute("data-en");
   });
@@ -261,8 +288,56 @@ function updateRunBtn(){
 }
 
 // ===== Probing =====
-const TIMEOUT_MS = 8000;
-const CONCURRENCY = 10;
+//
+// HTTPS strategy (a port of https://github.com/hyperion-cs/dpi-checkers ru/tcp-16-20):
+//   Phase 1 — alive   : single HEAD `?t=rand`, short timeout. Confirms the host
+//                       is reachable at all.
+//   Phase 2 — DPI #1  : POST with a 64 KiB random body. If the host is alive but
+//                       this hangs to abort, we have a TSPU-style "freeze" of
+//                       the TCP connection after the 16–20 KB threshold (see
+//                       https://github.com/net4people/bbs/issues/490). Sending
+//                       OUTBOUND payload works because the TSPU 16–20 method
+//                       counts both directions.
+//   Phase 3 — DPI #2  : 9× HEAD with a ~7 KiB random `?x=` query string,
+//                       totalling ~64 KiB on the request line. Used as a tie-
+//                       breaker when DPI #1 is inconclusive (e.g. host refused
+//                       POST instantly).
+//
+// The old favicon-fallback / 10× reliability checks were deliberately removed:
+// they kept `twitch.tv` GREEN even on networks where the TSPU was actively
+// freezing the socket the moment a real (≫16 KB) HLS chunk would be requested.
+// A favicon never trips the 16-20 limit, so the previous checker was blind to
+// the actual user-visible breakage.
+const TIMEOUT_MS      = 8000;          // alive HEAD
+const DPI_TIMEOUT_MS  = 12000;         // big-body POST / multi-HEAD URI
+const DPI_THR_BYTES   = 64 * 1024;     // body size for the huge-body POST method
+const MAX_URI_X_SIZE  = 7 * 1024;      // per-request ?x= padding for huge-URI HEAD
+const CONCURRENCY     = 8;             // a bit lower than before — each probe pushes 64 KiB
+
+// 5-state DPI verdict, mirrors the dpi-checkers naming so we can move snippets
+// freely between the two codebases.
+const DPI_NOT_DETECTED = 0;
+const DPI_DETECTED     = 1;
+const DPI_PROBABLY     = 2;
+const DPI_POSSIBLE     = 3;
+const DPI_UNLIKELY     = 4;
+
+const ALIVE_NO      = 0;
+const ALIVE_YES     = 1;
+const ALIVE_UNKNOWN = 2;
+
+// Optional URL-driven knobs (analogous to ?timeout=... on dpi-checkers).
+(function applyProbeParams(){
+  const p = new URLSearchParams(location.search);
+  const tm = parseInt(p.get("timeout"), 10);
+  if(Number.isFinite(tm) && tm >= 1000 && tm <= 60000) {
+    // We let users override the slower phase only — the alive HEAD has its
+    // own short budget so the whole test doesn't drag.
+    window.__DPI_TIMEOUT_MS_OVERRIDE = tm;
+  }
+})();
+function _dpiTimeout(){ return window.__DPI_TIMEOUT_MS_OVERRIDE || DPI_TIMEOUT_MS; }
+
 const COUNTED_STATUSES = new Set(["ok","blocked","timeout"]);
 const CLIENT_BLOCK_PATTERNS = [
   "err_blocked_by_client","blocked by client","ublock origin","adblock","ad blocker",
@@ -274,6 +349,10 @@ const CLIENT_BLOCK_PATTERNS = [
 function isCountedStatus(s){ return COUNTED_STATUSES.has(s); }
 function isFailureStatus(s){ return s==="blocked" || s==="timeout"; }
 function getResultStatus(r){
+  // The new probe pre-classifies into status/reason/alive/dpi. For legacy
+  // call-sites that only have {ok,timedOut,clientBlocked,ms} this fallback
+  // keeps the old contract.
+  if(r.status) return r.status;
   if(r.ok) return "ok";
   if(r.clientBlocked) return "client";
   if(r.timedOut) return "timeout";
@@ -294,63 +373,165 @@ function isClientSideBlockError(err){
   return CLIENT_BLOCK_PATTERNS.some(p => raw.includes(p));
 }
 
-function probeImg(host, timeout){
-  return new Promise(resolve => {
-    const img = new Image();
-    const t0 = performance.now();
-    const timer = setTimeout(()=>{ img.src=""; resolve({ok:false, ms:timeout, timedOut:true}); }, timeout);
-    img.onload = () => { clearTimeout(timer); resolve({ok:true, ms:Math.round(performance.now()-t0), timedOut:false}); };
-    img.onerror = () => { clearTimeout(timer); resolve({ok:false, ms:Math.round(performance.now()-t0), timedOut:false}); };
-    img.src = `https://${host}/favicon.ico?_=${Date.now()}`;
-  });
+// ----- DPI helpers -----
+function _uniqUrl(url){
+  return url.includes("?") ? `${url}&t=${Math.random()}` : `${url}?t=${Math.random()}`;
+}
+function _randomBytes(size){
+  const data = new Uint8Array(size);
+  // Crypto.getRandomValues max single-call quota is 65536 bytes.
+  const CHUNK = 64 * 1024;
+  for(let off = 0; off < size; off += CHUNK){
+    crypto.getRandomValues(data.subarray(off, Math.min(off + CHUNK, size)));
+  }
+  return data;
+}
+function _randomSafeChars(n){
+  const chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+  let out = "";
+  for(let i = 0; i < n; i++) out += chars[(Math.random() * chars.length) | 0];
+  return out;
+}
+function _baseFetchOpts(ctrl, method){
+  return {
+    method,
+    mode: "no-cors",
+    referrer: "",
+    credentials: "omit",
+    cache: "no-store",
+    signal: ctrl.signal,
+    redirect: "follow",
+    // Mirrors dpi-checkers: keepalive imposes a 64 KiB request-body cap and we
+    // also don't want to be served from a pooled / already-frozen socket.
+    keepalive: false,
+  };
 }
 
-async function probeHttps(url, timeoutMs = TIMEOUT_MS){
+// Translate (alive, dpiVerdict) into the high-level row that the rest of the
+// app already understands. `reason` carries the *kind* of failure for the UI.
+function _classifyHttps(alive, dpi, ms){
+  if(alive === ALIVE_NO){
+    return {status:"timeout", reason:"alive_timeout", alive, dpi:null, dpi_method:null, ms};
+  }
+  switch(dpi){
+    case DPI_NOT_DETECTED:
+      return {status:"ok",      reason:null,                alive, dpi, ms};
+    case DPI_DETECTED:
+      return {status:"blocked", reason:"tcp1620",           alive, dpi, ms};
+    case DPI_PROBABLY:
+      return {status:"blocked", reason:"tcp1620_probably",  alive, dpi, ms};
+    case DPI_POSSIBLE:
+    case DPI_UNLIKELY:
+      // Fast, non-timeout failure on a *big* body while alive=YES — that's
+      // either a SNI/CIDR drop or an RST mid-handshake. Either way it isn't
+      // the "freeze after 16-20 KB" pattern, surface it as "rst".
+      return {status:"blocked", reason:"rst",               alive, dpi, ms};
+    default:
+      return {status:"blocked", reason:"rst",               alive, dpi, ms};
+  }
+}
+
+// Map the (alive, error) combo from a DPI phase to a verdict. Identical to
+// dpi-checkers `handleDpiMethodErr`, kept verbatim for parity.
+function _dpiErrToVerdict(aliveBool, e){
+  if(e?.name === "AbortError"){
+    if(aliveBool) return DPI_DETECTED; // alive=ok, push=timeout → freeze
+    return DPI_PROBABLY;               // alive=instant_err, push=timeout
+  }
+  if(aliveBool) return DPI_POSSIBLE;   // alive=ok, push=instant_err
+  return DPI_UNLIKELY;                 // alive=instant_err, push=instant_err
+}
+
+async function _aliveCheck(host){
   const ctrl = new AbortController();
-  const timer = setTimeout(()=>ctrl.abort(), timeoutMs);
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   const t0 = performance.now();
   try{
-    await fetch(url, {mode:"no-cors", cache:"no-store", signal:ctrl.signal});
+    await fetch(_uniqUrl(`https://${host}/`), _baseFetchOpts(ctrl, "HEAD"));
     clearTimeout(timer);
-    return {ok:true, ms:Math.round(performance.now()-t0)};
+    return {alive: ALIVE_YES, ms: Math.round(performance.now() - t0)};
   }catch(e){
     clearTimeout(timer);
-    const ms = Math.round(performance.now()-t0);
-    if(isClientSideBlockError(e)) return {ok:false, ms, timedOut:false, clientBlocked:true};
-    const timedOut = e.name==="AbortError" || ms >= TIMEOUT_MS-500;
-    const host = new URL(url).hostname;
-    if(!timedOut){
-      const imgResult = await probeImg(host, TIMEOUT_MS);
-      if(imgResult.ok) return imgResult;
+    const ms = Math.round(performance.now() - t0);
+    if(isClientSideBlockError(e)) return {alive: ALIVE_UNKNOWN, ms, clientBlocked: true};
+    if(e.name === "AbortError")   return {alive: ALIVE_NO,      ms};
+    return {alive: ALIVE_UNKNOWN, ms};
+  }
+}
+
+async function _dpiHugeBodyPost(aliveBool, host){
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), _dpiTimeout());
+  try{
+    const opts = _baseFetchOpts(ctrl, "POST");
+    opts.body = _randomBytes(DPI_THR_BYTES);
+    await fetch(_uniqUrl(`https://${host}/`), opts);
+    clearTimeout(timer);
+    return DPI_NOT_DETECTED;
+  }catch(e){
+    clearTimeout(timer);
+    return _dpiErrToVerdict(aliveBool, e);
+  }
+}
+
+async function _dpiHugeReqlineHead(aliveBool, host){
+  const times = Math.ceil(DPI_THR_BYTES / MAX_URI_X_SIZE);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), _dpiTimeout());
+  try{
+    for(let i = 0; i < times; i++){
+      const url = `https://${host}/?x=${_randomSafeChars(MAX_URI_X_SIZE)}`;
+      // HEAD on a long URI keeps the socket on a stable path through CDNs and
+      // doesn't waste downstream bandwidth.
+      await fetch(_uniqUrl(url), _baseFetchOpts(ctrl, "HEAD"));
     }
-    return {ok:false, ms, timedOut};
+    clearTimeout(timer);
+    return DPI_NOT_DETECTED;
+  }catch(e){
+    clearTimeout(timer);
+    return _dpiErrToVerdict(aliveBool, e);
   }
 }
 
-// Reliability probe: hit the CDN domain N times with delayMs between requests.
-// ok = all N succeeded; stores successCount/totalCount for display.
-const RELIABILITY_TIMES   = 10;
-const RELIABILITY_DELAY   = 500;   // ms between requests
-const RELIABILITY_TIMEOUT = 3000; // per-request timeout
-
-async function probeEntryReliability(entry, times = RELIABILITY_TIMES, delayMs = RELIABILITY_DELAY) {
-  let successCount = 0, totalMs = 0;
-  for (let i = 0; i < times; i++) {
-    if (i > 0) await new Promise(r => setTimeout(r, delayMs));
-    const url = `https://${entry.d}/favicon.ico?_=${Date.now()}`;
-    const r = await probeHttps(url, RELIABILITY_TIMEOUT);
-    if (r.ok) successCount++;
-    totalMs += r.ms;
+async function probeDpi(host){
+  const t0 = performance.now();
+  const a = await _aliveCheck(host);
+  if(a.clientBlocked){
+    return {status:"client", reason:"client_filter", alive: ALIVE_UNKNOWN, dpi:null, dpi_method:null, ms: a.ms};
   }
-  const avgMs = Math.round(totalMs / times);
-  const ok = successCount === times;
-  const timedOut = !ok && successCount === 0 && avgMs >= RELIABILITY_TIMEOUT - 200;
-  return { ok, ms: avgMs, timedOut, successCount, totalCount: times };
+  if(a.alive === ALIVE_NO){
+    return _classifyHttps(ALIVE_NO, null, a.ms);
+  }
+
+  const aliveBool = a.alive === ALIVE_YES;
+
+  // Method 1 — huge body POST. If we *immediately* see freeze on an alive
+  // host, that's the strongest signal of TCP 16-20.
+  const m1 = await _dpiHugeBodyPost(aliveBool, host);
+  if(m1 === DPI_DETECTED){
+    const out = _classifyHttps(a.alive, DPI_DETECTED, Math.round(performance.now() - t0));
+    out.dpi_method = 1;
+    return out;
+  }
+
+  // Method 2 fallback — many short HEAD requests with bloated query strings.
+  const m2 = await _dpiHugeReqlineHead(aliveBool, host);
+  // Use the strongest verdict between the two methods (DETECTED > … > NOT_DETECTED).
+  const finalDpi = (m1 === DPI_NOT_DETECTED && m2 === DPI_NOT_DETECTED)
+    ? DPI_NOT_DETECTED
+    : Math.min(m1 || DPI_UNLIKELY, m2 || DPI_UNLIKELY); // smaller enum value = stronger
+  const out = _classifyHttps(a.alive, finalDpi, Math.round(performance.now() - t0));
+  out.dpi_method = (finalDpi === m1 ? 1 : 2);
+  return out;
 }
 
-// WebSocket probe. We try to open a WSS connection; if it reaches `open` within timeout → OK.
-// On a DPI-reset the connection is closed before open, with very low latency → treat as blocked.
-// Timeout means the SYN/TLS handshake was silently dropped (also typical TSPU behaviour) → timeout.
+// WebSocket probe. We try to open a WSS connection; if it reaches `open` within
+// timeout → OK. On a DPI-reset the connection is closed before open, with very
+// low latency → treat as blocked. Timeout means the SYN/TLS handshake was
+// silently dropped (also typical TSPU behaviour) → timeout. WSS is intentionally
+// NOT subject to the TCP 16-20 probe — chat traffic is short messages that
+// never approach the 16-20 KB threshold, so a freeze test against a chat
+// endpoint would generate noise without measuring anything real.
 function probeWss(url){
   return new Promise(resolve => {
     const t0 = performance.now();
@@ -360,6 +541,15 @@ function probeWss(url){
       if(settled) return;
       settled = true;
       try { ws && ws.close(); } catch {}
+      // Inject placeholders so consumers can treat https/wss results uniformly.
+      if(res.alive == null) res.alive = res.ok ? ALIVE_YES : ALIVE_NO;
+      if(res.dpi == null)   res.dpi   = null;
+      if(res.dpi_method == null) res.dpi_method = null;
+      if(res.reason == null && !res.ok && !res.clientBlocked){
+        res.reason = res.timedOut ? "alive_timeout" : "rst";
+      }
+      if(res.clientBlocked && res.reason == null) res.reason = "client_filter";
+      if(!res.status) res.status = getResultStatus(res);
       resolve(res);
     };
     const timer = setTimeout(()=>finish({ok:false, ms:TIMEOUT_MS, timedOut:true}), TIMEOUT_MS);
@@ -394,8 +584,10 @@ function buildProbeUrl(entry){
   return proto === "wss" ? `wss://${entry.d}${path}` : `https://${entry.d}${path==="/"?"/":path}`;
 }
 async function probeEntry(entry){
-  const url = buildProbeUrl(entry);
-  return entry.proto === "wss" ? probeWss(url) : probeHttps(url);
+  if(entry.proto === "wss"){
+    return probeWss(buildProbeUrl(entry));
+  }
+  return probeDpi(entry.d);
 }
 
 // ===== Targets loader and category grouping =====
@@ -455,6 +647,26 @@ function catTitle(catId){
 function setPriorityFilter(f){ priorityFilter = f; renderPriorityCards(); }
 function setStatsFilter(f){ statsFilter = f; if(_lastStatsData) renderStatsCards(_lastStatsData); }
 
+// Render the small DPI badge that sits next to the green/red dot in priority
+// cards and result rows. Returns an empty string for entries without a DPI
+// verdict (WSS endpoints and legacy reports), so the existing layout stays
+// identical for those.
+function _dpiReasonHtml(r){
+  if(!r) return "";
+  const reason = r.reason;
+  if(!reason) return "";
+  const map = {
+    "tcp1620":          {label:t("reason_tcp1620"),  cls:"dpi-tcp1620",  title:t("dpi_detected")},
+    "tcp1620_probably": {label:t("reason_tcp1620p"), cls:"dpi-tcp1620p", title:t("dpi_probably")},
+    "rst":              {label:t("reason_rst"),      cls:"dpi-rst",      title:t("dpi_possible")},
+    "alive_timeout":    {label:t("reason_alive"),    cls:"dpi-dead",     title:t("dpi_alive_no")},
+    "client_filter":    {label:t("reason_local"),    cls:"dpi-local",    title:t("local_label")},
+  };
+  const e = map[reason];
+  if(!e) return "";
+  return `<span class="dpi-badge ${e.cls}" title="${e.title}">${e.label}</span>`;
+}
+
 // ===== Priority cards =====
 function renderPriorityCards(){
   const el = document.getElementById("priority-section");
@@ -488,21 +700,18 @@ function renderPriorityCards(){
       const r = priorityResults[site.d];
       const cls = r ? r.status : "pending";
       const icon = r
-        ? (r.successCount != null
-            ? `${r.successCount}/${r.totalCount}`
-            : (r.status==="ok"?"✓":r.status==="blocked"?"✗":r.status==="timeout"?"⏱":"L"))
+        ? (r.status==="ok"?"✓":r.status==="blocked"?"✗":r.status==="timeout"?"⏱":"L")
         : "…";
       if(r){
         if(isCountedStatus(r.status)){ totalTested++; if(r.status==="ok") okCount++; }
         else if(r.status==="client"){ localCount++; }
       }
-      const msLabel = r
-        ? (r.successCount != null ? `${r.successCount}/${r.totalCount} · ${r.ms}ms` : `${r.ms}ms`)
-        : "";
+      const msLabel = r ? `${r.ms}ms` : "";
       const protoCls = site.proto === "wss" ? "wss" : "https";
       const ciTags = site.tags && site.tags.length
         ? `<div class="ci-tags">${site.tags.map(tag=>`<span class="tag-badge">${tag}</span>`).join("")}</div>`
         : "";
+      const dpiBadge = _dpiReasonHtml(r);
       items += `<div class="cat-item ${cls}" title="${site.d}${msLabel?" · "+msLabel:""}">
         <span class="ci-flag">${site.flag}</span>
         <div class="ci-main">
@@ -510,6 +719,7 @@ function renderPriorityCards(){
           ${ciTags}
         </div>
         <span class="ci-proto ${protoCls}">${site.proto}</span>
+        ${dpiBadge}
         <span class="ci-status ${cls}">${icon}</span>
       </div>`;
     }
@@ -541,7 +751,8 @@ function addToLiveFeed(r){
   const feedTags = r.tags && r.tags.length
     ? `<span class="feed-tags">${r.tags.map(t=>`<span class="tag-badge">${t}</span>`).join("")}</span>`
     : `<span class="feed-tags"></span>`;
-  row.innerHTML = `<span class="proto ${protoCls}">${r.proto}</span><span class="domain">${r.domain}</span>${feedTags}<span class="ms">${r.ms}ms</span><span class="tag ${r.status}">${label}</span>`;
+  const dpiBadge = _dpiReasonHtml(r);
+  row.innerHTML = `<span class="proto ${protoCls}">${r.proto}</span><span class="domain">${r.domain}</span>${feedTags}${dpiBadge}<span class="ms">${r.ms}ms</span><span class="tag ${r.status}">${label}</span>`;
   el.prepend(row);
   while(el.children.length > 40) el.removeChild(el.lastChild);
 }
@@ -587,7 +798,11 @@ function renderReportButtons(){
     return;
   }
   const html = reportId
-    ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><button class="btn-share" onclick="shareReport()" title="${t("share_tooltip")}">🔗 ${t("share")}</button><a class="btn-share btn-others" href="https://probe.trolling.website/" target="_blank" rel="noopener noreferrer" title="${t("check_others_tooltip")}">🌐 ${t("check_others")}</a></div>`
+    ? `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+         <button class="btn-share" onclick="shareReport()" title="${t("share_tooltip")}">🔗 ${t("share")}</button>
+         <a class="btn-share btn-others" href="https://probe.trolling.website/" target="_blank" rel="noopener noreferrer" title="${t("check_others_tooltip")}">🌐 ${t("check_others")}</a>
+         <a class="btn-share btn-dpi" href="https://hyperion-cs.github.io/dpi-checkers/ru/tcp-16-20/" target="_blank" rel="noopener noreferrer" title="${t("check_dpi_tooltip")}">🔬 ${t("check_dpi")}</a>
+       </div>`
     : "";
   document.getElementById("report-section-top").innerHTML = html;
   document.getElementById("report-section-bottom").innerHTML = html;
@@ -664,12 +879,11 @@ async function runTest(){
   async function worker(){
     while(idx < allEntries.length){
       const entry = allEntries[idx++];
-      const useReliability = entry._dynamic || entry.reliability;
-      const r = useReliability ? await probeEntryReliability(entry) : await probeEntry(entry);
+      const r = await probeEntry(entry);
       const st = getResultStatus(r);
       priorityResults[entry.d] = {
-        status:st, ms:r.ms, proto:entry.proto||"https",
-        ...(useReliability && {successCount:r.successCount, totalCount:r.totalCount}),
+        status: st, ms: r.ms, proto: entry.proto || "https",
+        alive: r.alive, dpi: r.dpi, dpi_method: r.dpi_method, reason: r.reason || null,
       };
       const result = {
         domain: entry.d,
@@ -681,6 +895,10 @@ async function runTest(){
         ms: r.ms,
         tags: entry.tags || [],
         dynamic: !!entry._dynamic,
+        alive: r.alive ?? null,
+        dpi: r.dpi ?? null,
+        dpi_method: r.dpi_method ?? null,
+        reason: r.reason || null,
       };
       allResults.push(result);
       doneCount++;
@@ -692,7 +910,10 @@ async function runTest(){
   }
   await Promise.all(Array.from({length: Math.min(CONCURRENCY, allEntries.length)}, () => worker()));
 
-  // Retry timeouts once with lower concurrency
+  // Retry pure-timeout (alive=NO) once with lower concurrency. We deliberately
+  // do NOT retry "blocked" results: a TCP 16-20 verdict is sticky and a re-run
+  // on the same Chrome socket pool would just confirm the same answer or hit
+  // the dead-socket cache (see footer note about chrome://net-internals).
   const timedOut = allResults.filter(r=>r.status==="timeout");
   if(timedOut.length > 0){
     status.innerHTML = `<span class="status-dot"></span>${t("retry_phase")}… 0/${timedOut.length}`;
@@ -701,11 +922,18 @@ async function runTest(){
       while(retryIdx < timedOut.length){
         const orig = timedOut[retryIdx++];
         const entry = allEntries.find(e => e.d === orig.domain) || {d: orig.domain, proto: orig.proto};
-        const r = (entry._dynamic || entry.reliability) ? await probeEntryReliability(entry) : await probeEntry(entry);
+        const r = await probeEntry(entry);
         const st = getResultStatus(r);
         if(st !== "timeout"){
-          orig.status = st; orig.ms = r.ms;
-          priorityResults[orig.domain] = {status:st, ms:r.ms, proto:orig.proto};
+          Object.assign(orig, {
+            status: st, ms: r.ms,
+            alive: r.alive ?? null, dpi: r.dpi ?? null,
+            dpi_method: r.dpi_method ?? null, reason: r.reason || null,
+          });
+          priorityResults[orig.domain] = {
+            status: st, ms: r.ms, proto: orig.proto,
+            alive: r.alive, dpi: r.dpi, dpi_method: r.dpi_method, reason: r.reason || null,
+          };
           addToLiveFeed(orig); addWorldMarker(orig);
         }
         retryDone++;
@@ -823,7 +1051,8 @@ function renderResults(filter){
     const resTags = r.tags && r.tags.length
       ? `<span class="feed-tags">${r.tags.map(t=>`<span class="tag-badge">${t}</span>`).join("")}</span>`
       : `<span class="feed-tags"></span>`;
-    html += `<div class="feed-row ${r.status}"><span class="proto ${protoCls}">${r.proto}</span><span class="domain">${r.domain}</span>${resTags}<span class="ms">${r.ms}ms</span><span class="tag ${r.status}">${label}</span></div>`;
+    const dpiBadge = _dpiReasonHtml(r);
+    html += `<div class="feed-row ${r.status}"><span class="proto ${protoCls}">${r.proto}</span><span class="domain">${r.domain}</span>${resTags}${dpiBadge}<span class="ms">${r.ms}ms</span><span class="tag ${r.status}">${label}</span></div>`;
   }
   if(extra>0) html += `<div style="text-align:center;padding:8px;color:#666;font-size:.8em">+${extra} ${t("more")}</div>`;
   document.getElementById("results").innerHTML = html;
@@ -846,6 +1075,10 @@ async function submitReport(){
       status:r.status, ms:r.ms, twitch_cat:r.twitch_cat, proto:r.proto,
       tags: r.tags || [],
       dynamic: !!r.dynamic,
+      alive: r.alive ?? null,
+      dpi: r.dpi ?? null,
+      dpi_method: r.dpi_method ?? null,
+      reason: r.reason || null,
     }))
   };
   el.textContent = t("submitting");
@@ -974,15 +1207,20 @@ function _renderCdnDomains(domains, label, tag, addFn) {
 
 async function _probeAndAddResult(domain, tags) {
   const entry = (targets?.intl||[]).find(e=>e.d===domain) || {d:domain, proto:"https", tags, _dynamic:true};
-  const r = await probeEntryReliability(entry);
+  const r = await probeEntry(entry);
   const st = getResultStatus(r);
   priorityResults[domain] = {
-    status:st, ms:r.ms, proto:"https",
-    successCount:r.successCount, totalCount:r.totalCount,
+    status: st, ms: r.ms, proto: "https",
+    alive: r.alive, dpi: r.dpi, dpi_method: r.dpi_method, reason: r.reason || null,
   };
   if (testDone) {
     const existing = allResults.find(x=>x.domain===domain);
-    const rec = {domain, category:"intl", twitch_cat:"streaming", proto:"https", asn:"AS16509", status:st, ms:r.ms, tags, dynamic: true};
+    const rec = {
+      domain, category:"intl", twitch_cat:"streaming", proto:"https",
+      asn:"AS16509", status:st, ms:r.ms, tags, dynamic: true,
+      alive: r.alive ?? null, dpi: r.dpi ?? null,
+      dpi_method: r.dpi_method ?? null, reason: r.reason || null,
+    };
     if (existing) Object.assign(existing, rec); else allResults.push(rec);
     renderResults(currentFilter);
   }
@@ -1327,7 +1565,74 @@ function renderCityMap(){
     cityMarkers.push(marker);
   }
 }
+// Per-row toggle state: which ISP rows are expanded in the current detail view.
+// Cleared on every loadISPs() invocation.
+const _ispOpenState = new Set();
+
+function _ispRowKey(displayName, isp){
+  // Stable id string used for the row + the details element underneath it.
+  // We base64-ish encode to avoid CSS-id-unfriendly chars in ISP/region names.
+  const raw = `${displayName}::${isp}`;
+  let h = 0;
+  for(let i = 0; i < raw.length; i++){ h = ((h << 5) - h + raw.charCodeAt(i)) | 0; }
+  return `isp-${(h >>> 0).toString(36)}`;
+}
+
+function toggleIspRow(rowKey){
+  if(_ispOpenState.has(rowKey)) _ispOpenState.delete(rowKey);
+  else _ispOpenState.add(rowKey);
+  const det = document.getElementById(`${rowKey}-det`);
+  const tog = document.getElementById(`${rowKey}-tog`);
+  if(det) det.classList.toggle("hidden", !_ispOpenState.has(rowKey));
+  if(tog) tog.textContent = _ispOpenState.has(rowKey) ? "▾" : "▸";
+}
+
+function _dpiReasonBadgesHtml(s){
+  const items = [
+    {n: s.dpi_tcp1620          || 0, cls:"dpi-tcp1620",  label:t("reason_tcp1620")},
+    {n: s.dpi_tcp1620_probably || 0, cls:"dpi-tcp1620p", label:t("reason_tcp1620p")},
+    {n: s.dpi_rst              || 0, cls:"dpi-rst",      label:t("reason_rst")},
+    {n: s.dpi_alive_timeout    || 0, cls:"dpi-dead",     label:t("reason_alive")},
+  ].filter(x => x.n > 0);
+  if(!items.length) return "";
+  return items.map(x => `<span class="dpi-badge ${x.cls}">${x.label}: ${x.n}</span>`).join(" ");
+}
+
+function _renderIspCatTable(byCat){
+  const cats = Array.isArray(CATEGORY_ORDER) ? CATEGORY_ORDER : [];
+  const present = cats.filter(c => byCat && byCat[c] && byCat[c].total > 0);
+  if(!present.length) return `<div style="color:#666;font-size:.74em;padding:6px 0">${t("no_data")}</div>`;
+  let rows = "";
+  for(const c of present){
+    const s = byCat[c];
+    const total = s.total || 1;
+    const wOk = (s.ok/total*100).toFixed(0);
+    const wTo = (s.timeout/total*100).toFixed(0);
+    const wBl = (s.blocked/total*100).toFixed(0);
+    const okPct = (s.ok/total*100).toFixed(0);
+    const cls = okPct >= 90 ? "ok" : okPct >= 50 ? "timeout" : "blocked";
+    rows += `<tr>
+      <td style="color:#ccc;font-size:.74em;padding:3px 8px">${catTitle(c)}</td>
+      <td style="font-size:.72em;color:#888;padding:3px 8px;text-align:right;font-variant-numeric:tabular-nums">${s.ok}/${total}</td>
+      <td style="padding:3px 8px;min-width:120px">
+        <span class="bar" style="width:${wOk}%;background:#22c55e"></span><span class="bar" style="width:${wTo}%;background:#f59e0b"></span><span class="bar" style="width:${wBl}%;background:#ef4444"></span>
+      </td>
+      <td class="ci-status ${cls}" style="font-size:.74em;font-weight:700;text-align:right;padding:3px 8px;min-width:36px">${okPct}%</td>
+    </tr>`;
+  }
+  return `<table class="asn-table" style="margin:0">
+    <thead><tr>
+      <th style="font-size:.7em">${lang==="ru"?"Категория Twitch":"Twitch category"}</th>
+      <th style="font-size:.7em;text-align:right">OK / total</th>
+      <th style="font-size:.7em">Status</th>
+      <th style="font-size:.7em;text-align:right">%</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
 async function loadISPs(key, displayName, mode="region"){
+  _ispOpenState.clear();
   const el = document.getElementById("region-detail");
   el.innerHTML = `<div class="cat-card"><div class="cat-title">${displayName} — ${t("isp_breakdown")}</div><div style="color:#888;font-size:.8em">Loading…</div></div>`;
   const url = mode === "city"
@@ -1347,19 +1652,30 @@ async function loadISPs(key, displayName, mode="region"){
       const wOk = (s.ok/total*100).toFixed(0);
       const wTo = (s.timeout/total*100).toFixed(0);
       const wBl = (s.blocked/total*100).toFixed(0);
-      rows += `<tr>
+      const okPct = (s.ok/total*100).toFixed(0);
+      const reasonBadges = _dpiReasonBadgesHtml(s);
+      const rowKey = _ispRowKey(displayName, isp);
+      const opened = _ispOpenState.has(rowKey);
+      const catTable = _renderIspCatTable(s.by_cat || {});
+
+      rows += `<tr class="isp-row" onclick="toggleIspRow('${rowKey}')" style="cursor:pointer">
+        <td style="font-size:.78em;text-align:center;color:#888;width:18px"><span id="${rowKey}-tog">${opened?"▾":"▸"}</span></td>
         <td style="color:#fff;font-weight:600;font-size:.78em">${isp}</td>
-        <td style="font-size:.78em">${s.reports}</td>
+        <td style="font-size:.78em;color:#aaa;text-align:right;font-variant-numeric:tabular-nums">${s.reports}</td>
         <td style="min-width:140px">
           <span class="bar" style="width:${wOk}%;background:#22c55e"></span><span class="bar" style="width:${wTo}%;background:#f59e0b"></span><span class="bar" style="width:${wBl}%;background:#ef4444"></span>
-          <span style="color:#888;font-size:.7em;margin-left:4px">${s.ok}✓ ${s.timeout}⏱ ${s.blocked}✗</span>
+          <span style="color:#888;font-size:.7em;margin-left:4px;font-variant-numeric:tabular-nums">${s.ok}✓ ${s.timeout}⏱ ${s.blocked}✗</span>
         </td>
-      </tr>`;
+        <td style="font-size:.78em;font-weight:700;text-align:right;padding-right:6px" class="ci-status ${okPct>=90?"ok":okPct>=50?"timeout":"blocked"}">${okPct}%</td>
+      </tr>
+      ${reasonBadges ? `<tr class="isp-reason-row"><td></td><td colspan="4" style="padding:0 8px 4px;font-size:.7em;color:#888"><span style="color:#666;margin-right:4px">${lang==="ru"?"причины:":"reasons:"}</span>${reasonBadges}</td></tr>` : ""}
+      <tr id="${rowKey}-det" class="isp-detail-row ${opened?"":"hidden"}"><td></td><td colspan="4" style="padding:0 8px 8px">${catTable}</td></tr>`;
     }
     el.innerHTML = `<div class="cat-card">
       <div class="cat-title">${displayName} — ${t("isp_breakdown")}</div>
+      <div style="font-size:.7em;color:#666;margin-bottom:6px">${lang==="ru"?"Нажмите на строку, чтобы увидеть разбивку по категориям Twitch":"Click a row to see Twitch category breakdown"}</div>
       <table class="asn-table">
-        <thead><tr><th>ISP</th><th>${t("reports")}</th><th>Status</th></tr></thead>
+        <thead><tr><th></th><th>ISP</th><th style="text-align:right">${t("reports")}</th><th>Status</th><th style="text-align:right">OK %</th></tr></thead>
         <tbody>${rows}</tbody>
       </table>
     </div>`;
@@ -1414,11 +1730,21 @@ async function loadSharedReport(id){
       ms: Number(r.ms) || 0,
       tags: Array.isArray(r.tags) ? r.tags : [],
       dynamic: !!r.dynamic,
+      // New DPI fields — null on legacy reports recorded by the old prober.
+      alive:      (r.alive == null)      ? null : Number(r.alive),
+      dpi:        (r.dpi == null)        ? null : Number(r.dpi),
+      dpi_method: (r.dpi_method == null) ? null : Number(r.dpi_method),
+      reason:     r.reason || null,
     })).filter(x => x.domain)
       .sort((a,b)=>(order[a.status]-order[b.status]) || a.domain.localeCompare(b.domain));
 
     priorityResults = {};
-    allResults.forEach(r => { priorityResults[r.domain] = {status:r.status, ms:r.ms, proto:r.proto}; });
+    allResults.forEach(r => {
+      priorityResults[r.domain] = {
+        status: r.status, ms: r.ms, proto: r.proto,
+        alive: r.alive, dpi: r.dpi, dpi_method: r.dpi_method, reason: r.reason || null,
+      };
+    });
 
     // Restore dynamic CDN domains into targets so they appear in priority cards
     for(const r of allResults){

@@ -66,6 +66,12 @@ class ReportResult(BaseModel):
     proto: Optional[str] = None
     tags: list[str] = []
     dynamic: bool = False  # True for runtime CDN discovery (clip/vod/live), saved as is_dynamic in DB
+    # DPI probe metadata. All optional so older / WSS-only / client-filter rows
+    # remain valid (those don't populate the TCP 16-20 method.)
+    alive:      Optional[int] = None  # 0=NO, 1=YES, 2=UNKNOWN
+    dpi:        Optional[int] = None  # 0=NOT_DETECTED..4=UNLIKELY
+    dpi_method: Optional[int] = None  # 1 huge-body POST, 2 huge-URI HEAD
+    reason:     Optional[str] = None  # 'tcp1620' | 'tcp1620_probably' | 'rst' | 'alive_timeout' | 'client_filter'
 
 
 class ReportPayload(BaseModel):
@@ -168,8 +174,9 @@ async def api_report(
         report_id = cur.lastrowid
         conn.executemany(
             """
-            INSERT INTO results (report_id, domain, category, twitch_cat, proto, asn, status, ms, tags, is_dynamic)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO results (report_id, domain, category, twitch_cat, proto, asn, status, ms, tags, is_dynamic,
+                                 alive, dpi, dpi_method, reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -183,6 +190,10 @@ async def api_report(
                     int(r.ms or 0),
                     _json.dumps(r.tags, ensure_ascii=False) if r.tags else None,
                     1 if r.dynamic else 0,
+                    r.alive,
+                    r.dpi,
+                    r.dpi_method,
+                    (r.reason[:64] if r.reason else None),
                 )
                 for r in payload.results
             ],
@@ -209,7 +220,11 @@ async def api_get_report(report_id: int) -> JSONResponse:
         if not row:
             return JSONResponse({"error": "not found"}, status_code=404)
         results = conn.execute(
-            "SELECT domain, category, twitch_cat, proto, asn, status, ms, tags, is_dynamic FROM results WHERE report_id = ?",
+            """
+            SELECT domain, category, twitch_cat, proto, asn, status, ms, tags, is_dynamic,
+                   alive, dpi, dpi_method, reason
+            FROM results WHERE report_id = ?
+            """,
             (report_id,)
         ).fetchall()
     return JSONResponse({
@@ -231,6 +246,10 @@ async def api_get_report(report_id: int) -> JSONResponse:
                 "ms":         int(r["ms"] or 0),
                 "tags":       _safe_json_list(r["tags"], _j),
                 "dynamic":    bool(r["is_dynamic"]),
+                "alive":      r["alive"],
+                "dpi":        r["dpi"],
+                "dpi_method": r["dpi_method"],
+                "reason":     r["reason"],
             }
             for r in results
         ],

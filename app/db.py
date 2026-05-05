@@ -45,7 +45,13 @@ CREATE TABLE IF NOT EXISTS results (
     status       TEXT    NOT NULL,     -- 'ok' | 'blocked' | 'timeout' | 'client'
     ms           INTEGER,
     tags         TEXT,                 -- JSON array, e.g. '["live-streams","clips"]'
-    is_dynamic   INTEGER NOT NULL DEFAULT 0  -- 1 = discovered at runtime (clip/vod/live CDN), not static targets.json
+    is_dynamic   INTEGER NOT NULL DEFAULT 0, -- 1 = discovered at runtime (clip/vod/live CDN), not static targets.json
+    -- DPI probe metadata (TCP 16-20 method, see https://github.com/net4people/bbs/issues/490).
+    -- NULL on legacy rows recorded by the old favicon-fallback prober.
+    alive        INTEGER,              -- 0=NO, 1=YES, 2=UNKNOWN
+    dpi          INTEGER,              -- 0=NOT_DETECTED, 1=DETECTED, 2=PROBABLY, 3=POSSIBLE, 4=UNLIKELY
+    dpi_method   INTEGER,              -- 1 = huge-body POST,  2 = huge-URI HEAD fallback
+    reason       TEXT                  -- 'tcp1620' | 'tcp1620_probably' | 'rst' | 'alive_timeout' | 'client_filter' | NULL
 );
 
 
@@ -53,13 +59,23 @@ CREATE INDEX IF NOT EXISTS idx_results_report_id  ON results(report_id);
 CREATE INDEX IF NOT EXISTS idx_results_domain     ON results(domain);
 CREATE INDEX IF NOT EXISTS idx_results_status     ON results(status);
 CREATE INDEX IF NOT EXISTS idx_results_twitch_cat ON results(twitch_cat);
+-- NB: indexes on columns added by _MIGRATIONS (dpi, reason, ...) are created
+-- in _MIGRATIONS itself, *after* the corresponding ALTER TABLE runs. Putting
+-- them here would crash on existing DBs where the columns don't yet exist.
 """
 
+# Each entry runs once at startup; failures (e.g. column already exists on an
+# older SQLite without "ALTER TABLE … IF NOT EXISTS") are swallowed below.
 _MIGRATIONS = [
-    # 001 — add tags column (idempotent via ALTER TABLE … IF NOT EXISTS not available in old SQLite;
-    #        we catch OperationalError instead)
     "ALTER TABLE results ADD COLUMN tags TEXT",
     "ALTER TABLE results ADD COLUMN is_dynamic INTEGER NOT NULL DEFAULT 0",
+    # 003 — DPI probe metadata (TCP 16-20)
+    "ALTER TABLE results ADD COLUMN alive INTEGER",
+    "ALTER TABLE results ADD COLUMN dpi INTEGER",
+    "ALTER TABLE results ADD COLUMN dpi_method INTEGER",
+    "ALTER TABLE results ADD COLUMN reason TEXT",
+    "CREATE INDEX IF NOT EXISTS idx_results_dpi    ON results(dpi)",
+    "CREATE INDEX IF NOT EXISTS idx_results_reason ON results(reason)",
 ]
 
 
