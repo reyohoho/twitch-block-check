@@ -108,10 +108,10 @@ const T = {
   reason_rst:       {en:"RST / SNI",                ru:"RST / SNI"},
   reason_alive:     {en:"Unreachable",              ru:"Недоступен"},
   reason_local:     {en:"Local filter",             ru:"Локальный фильтр"},
-  socket_warn:      {en:"Browser cannot reset TCP sockets — Chrome may serve a probe from an already-frozen connection. For accurate results, run the test in incognito or flush sockets at chrome://net-internals/#sockets between runs.",
-                     ru:"Браузер не умеет ресетить TCP-сокеты — Chrome может выдать ответ из уже «замороженного» соединения. Для точных результатов запускайте тест в incognito или сбрасывайте сокеты на chrome://net-internals/#sockets между запусками."},
-  socket_warn_short:{en:"Browser pooling can bias re-runs — use incognito for a clean test.",
-                     ru:"Пулинг сокетов искажает повторные запуски — используйте incognito для чистого теста."},
+  socket_warn:      {en:"In the browser sandbox, TCP connections cannot be reset — repeated tests may bias the results. It is recommended to run the test in a separate Incognito window, or manually reset connections between runs (in Chrome: chrome://net-internals/#sockets → Flush socket pools).",
+                     ru:"В песочнице браузера TCP-соединения нельзя ресетить — повторные тесты могут искажать результаты. Рекомендуется запускать тест в отдельном окне Инкогнито или вручную сбрасывать соединения между запусками (в Chrome: chrome://net-internals/#sockets → Flush socket pools)."},
+  socket_warn_short:{en:"Browser socket pooling can bias re-runs — use Incognito for a clean test.",
+                     ru:"Пулинг сокетов в браузере искажает повторные запуски — используйте Инкогнито для чистого теста."},
 };
 function t(k){ return T[k]?.[lang] || T[k]?.en || k; }
 
